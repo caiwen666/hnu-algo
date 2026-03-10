@@ -62,9 +62,9 @@ where
             panic!("Vector length must be equal to matrix row");
         }
         let mut result = vec![T::default(); self.col];
-        for col in 0..self.col {
-            for (row, value) in self.col_elements[col].iter() {
-                result[col] = result[col] + vector[*row] * value.clone();
+        for (col, col_list) in self.col_elements.iter().enumerate() {
+            for (row, value) in col_list.iter() {
+                result[col] = result[col] + vector[*row] * *value;
             }
         }
         result
