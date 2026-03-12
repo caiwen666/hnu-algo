@@ -1,10 +1,12 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     error::Error,
     fmt::{self, Display, Formatter},
 };
 
 use ndarray::{Array2, Axis};
+
+use crate::algorithms::matrix::{CSCMatrix, Vector};
 
 #[derive(Debug)]
 pub enum PagerankError {
@@ -21,7 +23,7 @@ impl Display for PagerankError {
 
 impl Error for PagerankError {}
 
-pub struct SimplePagerankGraph<T> {
+pub struct SimplePagerank<T> {
     capacity: usize,
     key_to_index: HashMap<T, usize>,
     index_to_key: HashMap<usize, T>,
@@ -29,7 +31,7 @@ pub struct SimplePagerankGraph<T> {
     size: usize,
 }
 
-impl<T> SimplePagerankGraph<T>
+impl<T> SimplePagerank<T>
 where
     T: Eq + std::hash::Hash + Clone,
 {
@@ -90,6 +92,120 @@ where
             }
             last = current;
         }
+        let mut result: Vec<(T, f64)> = last
+            .into_iter()
+            .enumerate()
+            .map(|(i, x)| (self.index_to_key[&i].clone(), x))
+            .collect();
+        result.sort_by(|a, b| b.1.total_cmp(&a.1));
+        result
+    }
+}
+
+pub struct SparsePagerank<T> {
+    capacity: usize,
+    key_to_index: HashMap<T, usize>,
+    index_to_key: HashMap<usize, T>,
+    // 按行存储，方便我们后续进行行归一化
+    edges: Vec<HashMap<usize, f64>>,
+    size: usize,
+}
+
+impl<T> SparsePagerank<T>
+where
+    T: Eq + std::hash::Hash + Clone,
+{
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            key_to_index: HashMap::with_capacity(capacity),
+            index_to_key: HashMap::with_capacity(capacity),
+            edges: vec![HashMap::new(); capacity],
+            size: 0,
+        }
+    }
+    fn get_key_index(&mut self, key: T) -> usize {
+        if self.key_to_index.contains_key(&key) {
+            self.key_to_index[&key]
+        } else {
+            if self.size >= self.capacity {
+                panic!("Capacity exceeded");
+            }
+            let new_index = self.size;
+            self.size += 1;
+            self.key_to_index.insert(key.clone(), new_index);
+            self.index_to_key.insert(new_index, key);
+            new_index
+        }
+    }
+    /// 添加一条从 from_key 到 to_key 的边
+    ///
+    /// 如果边已经被添加过，则不会重复添加
+    ///
+    /// # Panics
+    ///
+    /// 如果添加的边涉及到的节点数量超过了 `capacity`，则 panic
+    pub fn add_edge(&mut self, from_key: T, to_key: T) {
+        let from_index = self.get_key_index(from_key.clone());
+        let to_index = self.get_key_index(to_key.clone());
+        let value = self.edges[from_index].entry(to_index).or_insert(0.0);
+        *value += 1.0;
+    }
+
+    pub fn rank(&self, following_prob: f64, tolerance: f64) -> Vec<(T, f64)> {
+        dbg!(&self.capacity);
+        // 按行归一化，得到转移矩阵
+        let mut transition_matrix = CSCMatrix::new(self.capacity, self.capacity);
+        // 寻找 dangling nodes
+        let mut dangling_nodes_index = HashSet::new();
+        for (row_num, row) in self.edges.iter().enumerate() {
+            let row_sum = row.values().sum::<f64>();
+            if row_sum == 0.0 {
+                dangling_nodes_index.insert(row_num);
+                continue;
+            }
+            for (col_num, value) in row.iter() {
+                transition_matrix.set(row_num, *col_num, *value / row_sum);
+            }
+        }
+        // 初始化 pagerank
+        let mut last = vec![1.0 / self.capacity as f64; self.capacity];
+        let personalization = last.clone();
+        let dangling_weights = personalization.clone();
+        // 不断迭代直到达到收敛条件
+        let mut iter_count = 0;
+        loop {
+            let leak_rank = last
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &x)| {
+                    if dangling_nodes_index.contains(&i) {
+                        Some(x)
+                    } else {
+                        None
+                    }
+                })
+                .sum();
+            let current = transition_matrix
+                .left_mul(last.clone())
+                .add(dangling_weights.clone().scale(leak_rank))
+                .scale(following_prob)
+                .add(personalization.clone().scale(1.0 - following_prob));
+            let diff = last
+                .clone()
+                .sub(current.clone())
+                .iter()
+                .map(|x| x.abs())
+                .sum::<f64>();
+            iter_count += 1;
+            if diff < self.capacity as f64 * tolerance {
+                // 收敛时应返回本轮的 current
+                last = current;
+                break;
+            }
+            last = current;
+        }
+        dbg!(&iter_count);
         let mut result: Vec<(T, f64)> = last
             .into_iter()
             .enumerate()

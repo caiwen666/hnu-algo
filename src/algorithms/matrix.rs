@@ -71,6 +71,59 @@ where
     }
 }
 
+pub trait Vector {
+    type Item;
+    fn scale(self, s: Self::Item) -> Self;
+    fn add(self, other: Self) -> Self;
+    fn sub(self, other: Self) -> Self;
+}
+
+impl Vector for Vec<f64> {
+    type Item = f64;
+
+    fn scale(self, s: Self::Item) -> Self {
+        self.into_iter().map(|x| x * s).collect()
+    }
+
+    /// 将两个向量逐元素相加
+    ///
+    /// # Panics
+    ///
+    /// 如果两个向量的长度不相同，则 panic
+    fn add(self, other: Self) -> Self {
+        if self.len() != other.len() {
+            panic!("Vector length must be equal");
+        }
+        self.into_iter()
+            .zip(other)
+            .map(|(x, y)| x + y)
+            .collect()
+    }
+
+    /// 将两个向量逐元素相减
+    ///
+    /// # Arguments
+    ///
+    /// - `other`: 要减的向量
+    ///
+    /// # Returns
+    ///
+    /// 当前向量**和** `other`的差值
+    ///
+    /// # Panics
+    ///
+    /// 如果两个向量的长度不相同，则 panic
+    fn sub(self, other: Self) -> Self {
+        if self.len() != other.len() {
+            panic!("Vector length must be equal");
+        }
+        self.into_iter()
+            .zip(other)
+            .map(|(x, y)| x - y)
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
