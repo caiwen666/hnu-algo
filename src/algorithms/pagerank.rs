@@ -148,12 +148,10 @@ where
     pub fn add_edge(&mut self, from_key: T, to_key: T) {
         let from_index = self.get_key_index(from_key.clone());
         let to_index = self.get_key_index(to_key.clone());
-        let value = self.edges[from_index].entry(to_index).or_insert(0.0);
-        *value += 1.0;
+        self.edges[from_index].entry(to_index).or_insert(1.0);
     }
 
     pub fn rank(&self, following_prob: f64, tolerance: f64) -> Vec<(T, f64)> {
-        dbg!(&self.capacity);
         // 按行归一化，得到转移矩阵
         let mut transition_matrix = CSCMatrix::new(self.capacity, self.capacity);
         // 寻找 dangling nodes
@@ -173,7 +171,6 @@ where
         let personalization = last.clone();
         let dangling_weights = personalization.clone();
         // 不断迭代直到达到收敛条件
-        let mut iter_count = 0;
         loop {
             let leak_rank = last
                 .iter()
@@ -197,7 +194,6 @@ where
                 .iter()
                 .map(|x| x.abs())
                 .sum::<f64>();
-            iter_count += 1;
             if diff < self.capacity as f64 * tolerance {
                 // 收敛时应返回本轮的 current
                 last = current;
@@ -205,7 +201,6 @@ where
             }
             last = current;
         }
-        dbg!(&iter_count);
         let mut result: Vec<(T, f64)> = last
             .into_iter()
             .enumerate()
