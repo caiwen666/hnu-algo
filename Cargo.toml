@@ -3,6 +3,10 @@ name = "hnu_algo"
 version = "0.1.0"
 edition = "2024"
 
+[[bench]]
+name = "divide_conquer_min_max"
+harness = false
+
 [dependencies]
 ndarray = "0.17.2"
 
