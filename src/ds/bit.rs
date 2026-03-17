@@ -1,4 +1,4 @@
-use std::ops::{AddAssign, Sub};
+use std::ops::{Add, AddAssign, Sub};
 
 use crate::utils::low_bit;
 
@@ -91,12 +91,44 @@ where
     }
 }
 
+impl<T> BinaryIndexedTree<T>
+where
+    T: Default + AddAssign<T> + Clone + PartialOrd + Add<Output = T>,
+{
+    /// 在树状数组寻找，满足 pre_sum(index) >= value 的最小 index 值
+    ///
+    /// 时间复杂度为 O(log n)，n 为树状数组的 capacity
+    ///
+    /// 树状数组的下标从 1 开始
+    ///
+    /// # Returns
+    ///
+    /// 如果找不到，则返回 None，否则返回满足条件的 index
+    pub fn lower_bound(&self, value: T) -> Option<usize> {
+        if self.capacity == 0 || self.prefix_sum(self.capacity) < value {
+            return None;
+        }
+        let lim = usize::BITS - self.capacity.leading_zeros() - 1;
+        let mut sum = T::default();
+        let mut index = 0;
+        for i in (0..=lim).rev() {
+            index += 1 << i;
+            if index > self.capacity || sum.clone() + self.data[index].clone() >= value {
+                index -= 1 << i;
+            } else {
+                sum += self.data[index].clone();
+            }
+        }
+        Some(index + 1)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_bit1() {
+    fn test_bit() {
         let mut bit = BinaryIndexedTree::new(5);
         // 初始值
         bit.add(1, 1);
@@ -110,5 +142,21 @@ mod tests {
         bit.add(3, -1);
         bit.add(4, 2);
         assert_eq!(bit.range_sum(1, 4), 16);
+    }
+
+    #[test]
+    fn test_bit_lower_bound() {
+        let mut bit = BinaryIndexedTree::new(5);
+        bit.add(1, 3);
+        bit.add(2, 0);
+        bit.add(3, 5);
+        bit.add(4, 0);
+        bit.add(5, 3);
+        assert_eq!(bit.lower_bound(2), Some(1));
+        assert_eq!(bit.lower_bound(3), Some(1));
+        assert_eq!(bit.lower_bound(6), Some(3));
+        assert_eq!(bit.lower_bound(10), Some(5));
+        assert_eq!(bit.lower_bound(11), Some(5));
+        assert_eq!(bit.lower_bound(12), None);
     }
 }
