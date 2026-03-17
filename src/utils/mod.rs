@@ -28,3 +28,8 @@ where
     }
     nodes.len()
 }
+
+#[inline]
+pub fn low_bit(x: usize) -> usize {
+    x & (-(x as isize)) as usize
+}
