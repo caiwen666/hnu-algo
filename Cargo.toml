@@ -11,6 +11,10 @@ harness = false
 name = "divide_conquer_sort"
 harness = false
 
+[[bench]]
+name = "simple_knapsack"
+harness = false
+
 [dependencies]
 ndarray = "0.17.2"
 
