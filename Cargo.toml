@@ -7,6 +7,10 @@ edition = "2024"
 name = "divide_conquer_min_max"
 harness = false
 
+[[bench]]
+name = "divide_conquer_sort"
+harness = false
+
 [dependencies]
 ndarray = "0.17.2"
 

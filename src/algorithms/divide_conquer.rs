@@ -1,5 +1,7 @@
 /// 分治法求最小值和最小值
 ///
+/// 时间复杂度 $O(n)$，空间复杂度 $O(\log n)$
+///
 /// # Arguments
 ///
 /// * `arr` - 要查找的数组
@@ -53,6 +55,100 @@ where
     (min, max)
 }
 
+/// 分治法排序，将数组从小到大排序
+///
+/// 时间复杂度 $O(n \log n)$，空间复杂度 $O(\log n)$，排序是稳定的
+///
+/// # Arguments
+///
+/// * `arr` - 要排序的数组
+///
+/// # Returns
+///
+/// 返回排序后的数组
+///
+/// # Examples
+///
+/// ```rust
+/// # use hnu_algo::algorithms::divide_conquer::sort;
+/// let arr = [1, 1, 4, 5, 1, 4];
+/// let sorted_arr = sort(&arr);
+/// let expected_arr = [1, 1, 1, 4, 4, 5];
+/// assert_eq!(sorted_arr, expected_arr);
+/// ```
+pub fn sort<T>(arr: &[T]) -> Vec<&T>
+where
+    T: Ord,
+{
+    fn merge<'a, T>(left: &[&'a T], right: &[&'a T], target: &mut [&'a T])
+    where
+        T: Ord,
+    {
+        let mut i = 0;
+        let mut j = 0;
+        let mut k = 0;
+
+        while i < left.len() && j < right.len() {
+            if left[i] <= right[j] {
+                target[k] = left[i];
+                i += 1;
+            } else {
+                target[k] = right[j];
+                j += 1;
+            }
+            k += 1;
+        }
+
+        while i < left.len() {
+            target[k] = left[i];
+            i += 1;
+            k += 1;
+        }
+
+        while j < right.len() {
+            target[k] = right[j];
+            j += 1;
+            k += 1;
+        }
+    }
+
+    if arr.is_empty() {
+        return Vec::new();
+    }
+
+    // 初始把所有元素的引用收集到一个 Vec 中
+    let mut result: Vec<&T> = arr.iter().collect();
+    // 额外申请一次同样大小的缓冲区，整个排序过程中复用，避免递归中反复分配
+    let mut buf: Vec<&T> = result.clone();
+
+    let mut width = 1;
+    let len = result.len();
+
+    // 自底向上的迭代归并排序，避免递归开销
+    while width < len {
+        let mut i = 0;
+        while i < len {
+            let left = i;
+            let mid = (i + width).min(len);
+            let right = (i + 2 * width).min(len);
+            if mid < right {
+                merge(
+                    &result[left..mid],
+                    &result[mid..right],
+                    &mut buf[left..right],
+                );
+            } else {
+                // 这一段不足以形成两个区间，直接拷贝
+                buf[left..right].copy_from_slice(&result[left..right]);
+            }
+            i += 2 * width;
+        }
+        std::mem::swap(&mut result, &mut buf);
+        width *= 2;
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,5 +175,33 @@ mod tests {
         let (min, max) = find_min_max(&arr);
         assert_eq!(min, 6);
         assert_eq!(max, 7);
+    }
+
+    #[test]
+    fn test_sort_empty() {
+        let arr: [i32; 0] = [];
+        let sorted_arr = sort(&arr);
+        assert_eq!(sorted_arr, Vec::<&i32>::new());
+    }
+
+    #[test]
+    fn test_sort_one() {
+        let arr = [1];
+        let sorted_arr = sort(&arr);
+        assert_eq!(sorted_arr, vec![&1]);
+    }
+
+    #[test]
+    fn test_sort_increase() {
+        let arr = [1, 2, 3, 4, 5];
+        let sorted_arr = sort(&arr);
+        assert_eq!(sorted_arr, vec![&1, &2, &3, &4, &5]);
+    }
+
+    #[test]
+    fn test_sort_decrease() {
+        let arr = [5, 4, 3, 2, 1];
+        let sorted_arr = sort(&arr);
+        assert_eq!(sorted_arr, vec![&1, &2, &3, &4, &5]);
     }
 }

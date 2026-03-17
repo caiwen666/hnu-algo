@@ -56,3 +56,42 @@ fn test_find_min_max_large() {
     assert_eq!(min, expected_min);
     assert_eq!(max, expected_max);
 }
+
+#[test]
+#[ignore]
+fn test_sort_small() {
+    let data = dataset::seq::load_normal_small();
+    let sorted_data: Vec<usize> = algorithms::divide_conquer::sort(&data)
+        .iter()
+        .map(|x| **x)
+        .collect();
+    let mut expected_data = data.clone();
+    expected_data.sort();
+    assert_eq!(sorted_data, expected_data);
+}
+
+#[test]
+#[ignore]
+fn test_sort_medium() {
+    let data = dataset::seq::load_normal_medium();
+    let sorted_data: Vec<usize> = algorithms::divide_conquer::sort(&data)
+        .iter()
+        .map(|x| **x)
+        .collect();
+    let mut expected_data = data.clone();
+    expected_data.sort();
+    assert_eq!(sorted_data, expected_data);
+}
+
+#[test]
+#[ignore]
+fn test_sort_large() {
+    let data = dataset::seq::load_normal_large();
+    let sorted_data: Vec<usize> = algorithms::divide_conquer::sort(&data)
+        .iter()
+        .map(|x| **x)
+        .collect();
+    let mut expected_data = data.clone();
+    expected_data.sort();
+    assert_eq!(sorted_data, expected_data);
+}
