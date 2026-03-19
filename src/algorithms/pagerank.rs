@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     error::Error,
     fmt::{self, Display, Formatter},
+    fs::File,
 };
 
 use ndarray::{Array2, Axis};
@@ -208,5 +209,34 @@ where
             .collect();
         result.sort_by(|a, b| b.1.total_cmp(&a.1));
         result
+    }
+}
+
+impl<T> SparsePagerank<T>
+where
+    T: Eq + std::hash::Hash + Clone + serde::Serialize,
+{
+    /// 将图导出到指定文件
+    ///
+    /// # Panics
+    ///
+    /// 如果发生文件 IO 相关错误，则会 panic
+    pub fn export_graph(&self, file_path: &str) {
+        #[derive(serde::Serialize)]
+        struct Edge<T> {
+            from: T,
+            to: T,
+        }
+        let mut edges = Vec::new();
+        for (row_index, row) in self.edges.iter().enumerate() {
+            for (col_index, _) in row.iter() {
+                edges.push(Edge {
+                    from: self.index_to_key[&row_index].clone(),
+                    to: self.index_to_key[col_index].clone(),
+                });
+            }
+        }
+        let mut file = File::create(file_path).unwrap();
+        serde_json::to_writer_pretty(&mut file, &edges).unwrap();
     }
 }
