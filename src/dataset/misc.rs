@@ -10,7 +10,7 @@ use crate::algorithms::dp::SimpleKnapsackItem;
 ///
 /// 共 10 组数据。
 ///
-/// 数据下载链接：TODO
+/// 数据下载链接：<https://pic.caiwen.work/dataset/bzoj1625.zip>
 ///
 /// # Arguments
 ///

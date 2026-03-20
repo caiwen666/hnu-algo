@@ -17,7 +17,7 @@ pub fn load_google_dataset() -> Vec<(usize, usize)> {
 }
 
 /// 加载三体人物关系数据集
-/// 数据集地址：<https://pic.caiwen.work/three_body_edges.csv>
+/// 数据集地址：<https://pic.caiwen.work/dataset/three_body_edges.csv>
 pub fn load_three_body_dataset() -> Vec<(String, String)> {
     std::fs::read_to_string("dataset/three_body_edges.csv")
         .unwrap()
