@@ -3,3 +3,4 @@
 pub mod graph;
 pub mod misc;
 pub mod seq;
+pub mod ssp;
