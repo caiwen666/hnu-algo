@@ -94,10 +94,7 @@ impl Vector for Vec<f64> {
         if self.len() != other.len() {
             panic!("Vector length must be equal");
         }
-        self.into_iter()
-            .zip(other)
-            .map(|(x, y)| x + y)
-            .collect()
+        self.into_iter().zip(other).map(|(x, y)| x + y).collect()
     }
 
     /// 将两个向量逐元素相减
@@ -117,10 +114,7 @@ impl Vector for Vec<f64> {
         if self.len() != other.len() {
             panic!("Vector length must be equal");
         }
-        self.into_iter()
-            .zip(other)
-            .map(|(x, y)| x - y)
-            .collect()
+        self.into_iter().zip(other).map(|(x, y)| x - y).collect()
     }
 }
 
