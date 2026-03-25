@@ -157,12 +157,13 @@ impl BlockDs {
     /// # Preconditions
     ///
     /// - 所有的 value 必须严格小于当前数据结构中已有的 value 的最小值。该函数不会对这个条件进行任何的检查（包括 debug assertions）。
-    pub fn batch_prepend(&mut self, records: Vec<(usize, u64)>) {
+    pub fn batch_prepend(&mut self, records: &[(usize, u64)]) {
         if records.is_empty() {
             return;
         }
 
         // TODO：复用内存池来砍掉这块的内存分配
+        // 对 records 去重，并把已经存在于数据结构中的点删掉
         let mut insert_records: HashMap<usize, u64> = HashMap::new();
         for (key, value) in records.iter().copied() {
             if let Some(&old_node_id) = self.key_to_node.get(&key) {
@@ -181,7 +182,7 @@ impl BlockDs {
         insert_records.sort_unstable_by_key(|&(k, v)| (v, k));
 
         // 如果 records 中存在相同的 key，则删除之前的
-        for (key, _) in records.iter() {
+        for (key, _) in insert_records.iter() {
             if let Some(&old_id) = self.key_to_node.get(key) {
                 self.delete_node(old_id);
             }
@@ -189,10 +190,10 @@ impl BlockDs {
 
         let mut cursor = 0usize;
         let mut block_ids = Vec::<usize>::new();
-        while cursor < records.len() {
-            let end = min(cursor + self.m, records.len());
+        while cursor < insert_records.len() {
+            let end = min(cursor + self.m, insert_records.len());
             // [cursor, end) 这个区间为一块
-            let slice = &records[cursor..end];
+            let slice = &insert_records[cursor..end];
             let upper = slice
                 .last()
                 .map(|&(_, v)| v)
@@ -252,12 +253,7 @@ impl BlockDs {
             (cand_ids, None)
         } else {
             cand_ids.sort_unstable_by_key(|&id| (self.nodes[id].value, self.nodes[id].key));
-            let boundary_node_id = cand_ids[self.m];
-            // TODO 直接原地截掉前 m 个
-            (
-                cand_ids.into_iter().take(self.m).collect(),
-                Some(self.nodes[boundary_node_id].value),
-            )
+            (cand_ids.into_iter().take(self.m).collect(), None)
         };
 
         for &id in &result_ids {
@@ -620,7 +616,101 @@ impl BlockDs {
 mod tests {
     use crate::algorithms::bmssp::block_ds::PullResult;
 
+    use std::collections::HashMap;
+
     use super::BlockDs;
+
+    struct NaiveModel {
+        m: usize,
+        upper: u64,
+        map: HashMap<usize, u64>,
+    }
+
+    impl NaiveModel {
+        fn new(m: usize, upper: u64) -> Self {
+            Self {
+                m: m.max(1),
+                upper,
+                map: HashMap::new(),
+            }
+        }
+
+        fn is_empty(&self) -> bool {
+            self.map.is_empty()
+        }
+
+        fn len(&self) -> usize {
+            self.map.len()
+        }
+
+        fn min_value(&self) -> Option<u64> {
+            self.map.values().copied().min()
+        }
+
+        fn insert(&mut self, key: usize, value: u64) {
+            assert!(value <= self.upper, "test assumes value <= upper bound");
+            match self.map.get(&key).copied() {
+                None => {
+                    self.map.insert(key, value);
+                }
+                Some(old) => {
+                    // 和 BlockDs.insert 的实现一致：只会把值更新为更小的那个
+                    if old > value {
+                        self.map.insert(key, value);
+                    }
+                }
+            }
+        }
+
+        fn batch_prepend(&mut self, records: &[(usize, u64)]) {
+            if records.is_empty() {
+                return;
+            }
+
+            // 和 BlockDs.batch_prepend 一致：对同一个 key，在 records 内取最小值，
+            // 然后覆盖掉旧值（测试中会保证 records 的值严格小于当前全局最小值）。
+            let mut per_key: HashMap<usize, u64> = HashMap::new();
+            for &(k, v) in records {
+                per_key
+                    .entry(k)
+                    .and_modify(|old| {
+                        if v < *old {
+                            *old = v;
+                        }
+                    })
+                    .or_insert(v);
+            }
+            for (k, v) in per_key {
+                self.map.insert(k, v);
+            }
+        }
+
+        fn pull(&mut self) -> (u64, Vec<usize>) {
+            let len_before = self.map.len();
+            if len_before == 0 {
+                return (self.upper, vec![]);
+            }
+
+            let mut items: Vec<(u64, usize)> = self.map.iter().map(|(&k, &v)| (v, k)).collect();
+            items.sort_unstable_by_key(|&(v, k)| (v, k));
+
+            let take = items.len().min(self.m);
+            let picked = &items[..take];
+            for &(_, k) in picked {
+                self.map.remove(&k);
+            }
+
+            let boundary = if len_before <= self.m {
+                self.upper
+            } else {
+                // 取走 m 个后，剩余的最小值就是 items[take] 的 value
+                items[take].0
+            };
+
+            let keys = picked.iter().map(|&(_, k)| k).collect();
+            (boundary, keys)
+        }
+    }
 
     #[test]
     fn insert_update_then_pull_returns_m_smallest() {
@@ -647,7 +737,7 @@ mod tests {
         ds.insert(10, 100);
         ds.insert(11, 110);
         let records = [(2, 3), (1, 4), (10, 90)];
-        ds.batch_prepend(records.to_vec());
+        ds.batch_prepend(&records);
 
         let PullResult { mut keys, boundary } = ds.pull();
         keys.sort_unstable();
@@ -708,5 +798,353 @@ mod tests {
         assert_eq!(boundary, 50);
         ds.sanity_check_links();
         ds.sanity_check_keys();
+    }
+
+    #[test]
+    fn pull_on_empty_returns_upper_and_no_keys() {
+        let mut ds = BlockDs::new(2, 999);
+        assert!(ds.is_empty());
+
+        let PullResult { keys, boundary } = ds.pull();
+        assert!(keys.is_empty());
+        assert_eq!(boundary, 999);
+
+        ds.sanity_check_links();
+        ds.sanity_check_keys();
+        assert!(ds.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "value is greater than upper bound")]
+    fn insert_panics_when_value_greater_than_upper() {
+        let mut ds = BlockDs::new(2, 10);
+        ds.insert(1, 11);
+    }
+
+    #[test]
+    fn insert_updates_existing_key_to_smaller_value_only() {
+        let mut ds = BlockDs::new(2, 1000);
+        // 初始：key1=30, key2=20, key3=25 => 最小两者应是 key2, key3
+        ds.insert(1, 30);
+        ds.insert(2, 20);
+        ds.insert(3, 25);
+
+        // 把 key1 更新到更小，应该进入最小两者
+        ds.insert(1, 10);
+
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![1, 2]);
+        assert_eq!(boundary, 25);
+
+        ds.sanity_check_links();
+        ds.sanity_check_keys();
+    }
+
+    #[test]
+    fn insert_does_not_overwrite_with_larger_value() {
+        let mut ds = BlockDs::new(2, 1000);
+        // 初始：key1=10, key2=20, key3=25 => 最小两者 key1, key2；边界=25
+        ds.insert(1, 10);
+        ds.insert(2, 20);
+        ds.insert(3, 25);
+
+        // 用更大值“更新”key1：实现语义是取 min，因此应保持 key1=10
+        ds.insert(1, 30);
+
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![1, 2]);
+        assert_eq!(boundary, 25);
+
+        ds.sanity_check_links();
+        ds.sanity_check_keys();
+    }
+
+    #[test]
+    fn batch_prepend_handles_duplicate_keys_and_overwrites() {
+        let mut ds = BlockDs::new(2, 1000);
+        ds.insert(1, 50);
+        ds.insert(2, 60);
+        ds.insert(3, 70);
+        // 当前全局最小值是 50；records 内所有值必须严格小于 50
+
+        let records = [(2, 40), (1, 10), (2, 35), (4, 30)];
+        ds.batch_prepend(&records);
+
+        // 先确认 batch_prepend 语义本身是否正确（value 取 records 内最小值，key 对应值覆盖）。
+        // 如果这一步就不符合预期，则是 batch_prepend 插入逻辑有问题；
+        // 如果这一步符合，但 pull 不符合，则问题更可能出在 pull 的候选集/边界计算上。
+        let mut actual: HashMap<usize, u64> = HashMap::new();
+        for (&k, &nid) in &ds.key_to_node {
+            actual.insert(k, ds.nodes[nid].value);
+        }
+        let expected: HashMap<usize, u64> = [(1, 10u64), (2, 35u64), (3, 70u64), (4, 30u64)]
+            .into_iter()
+            .collect();
+        assert_eq!(actual, expected);
+
+        // 更新后：key1=10, key4=30, key2=35, key3=70
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![1, 4]);
+        assert_eq!(boundary, 35);
+
+        ds.sanity_check_links();
+        ds.sanity_check_keys();
+    }
+
+    #[test]
+    fn batch_prepend_can_overwrite_keys_in_d0_and_d1() {
+        let mut ds = BlockDs::new(2, 1000);
+        // 先放入 D1
+        ds.insert(1, 100);
+        ds.insert(2, 200);
+
+        // batch1：覆盖 key1，并生成 D0
+        ds.batch_prepend(&[(3, 50), (1, 80)]);
+        // 此时全局最小值应是 50
+
+        // batch2：值必须严格小于当前最小值 50，同时覆盖 key2（在 D1）与 key3（在 D0）
+        ds.batch_prepend(&[(2, 40), (3, 45)]);
+
+        // 更新后：key2=40, key3=45, key1=80
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![2, 3]);
+        assert_eq!(boundary, 80);
+
+        ds.sanity_check_links();
+        ds.sanity_check_keys();
+    }
+
+    #[test]
+    fn pull_sorts_candidates_when_d0_plus_d1_exceeds_m() {
+        let mut ds = BlockDs::new(3, 1000);
+        // D1：3 个节点（m=3，且当前 D0 为空）
+        ds.insert(1, 30);
+        ds.insert(2, 40);
+        ds.insert(3, 50);
+
+        // batch_prepend：插入 2 个节点到 D0（严格小于当前最小值 30）
+        ds.batch_prepend(&[(4, 10), (5, 20)]);
+
+        // 全局最小三者是 10(key4), 20(key5), 30(key1)
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![1, 4, 5]);
+        // 删除 3 个后剩余最小值是 40
+        assert_eq!(boundary, 40);
+
+        ds.sanity_check_links();
+        ds.sanity_check_keys();
+    }
+
+    #[test]
+    fn pull_tie_breaks_by_smaller_key_on_equal_values() {
+        let mut ds = BlockDs::new(2, 1000);
+        // 让 D1 至少分裂出多个 block：插入 4 个 value 都相同的元素
+        ds.insert(1, 10);
+        ds.insert(2, 10);
+        ds.insert(4, 10);
+        ds.insert(5, 10);
+
+        // D0：插入一个严格更小的 value，保证 pull 会同时看到 D0 与 D1，
+        // 并触发对候选的显式排序（从而确定 tie 的选择）。
+        ds.batch_prepend(&[(3, 1)]);
+
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        // 全局排序：(1,key3), (10,key1), (10,key2), (10,key4), (10,key5)
+        // m=2 => key3 和 key1
+        assert_eq!(keys, vec![1, 3]);
+        // 删除后剩余最小值仍为 10
+        assert_eq!(boundary, 10);
+
+        ds.sanity_check_links();
+        ds.sanity_check_keys();
+    }
+
+    #[test]
+    fn d1_split_then_pull_matches_naive_order() {
+        let mut ds = BlockDs::new(3, 1000);
+        // 插入 4 个节点会触发一次 D1 分裂
+        ds.insert(1, 50);
+        ds.insert(2, 10);
+        ds.insert(3, 40);
+        ds.insert(4, 20);
+
+        // 当前值：{key2:10, key4:20, key3:40, key1:50}
+        // m=3 => 拉取 10,20,40，边界=50
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![2, 3, 4]);
+        assert_eq!(boundary, 50);
+
+        ds.sanity_check_links();
+        ds.sanity_check_keys();
+    }
+
+    #[test]
+    fn d1_becomes_empty_and_reinsert_still_works() {
+        let mut ds = BlockDs::new(2, 777);
+        ds.insert(1, 10);
+        ds.insert(2, 20);
+
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![1, 2]);
+        assert_eq!(boundary, 777);
+        assert!(ds.is_empty());
+
+        // 验证删除最后一个 D1 节点后，后续还能正常工作
+        ds.insert(3, 5);
+        let PullResult { keys, boundary } = ds.pull();
+        assert_eq!(keys, vec![3]);
+        assert_eq!(boundary, 777);
+
+        ds.sanity_check_links();
+        ds.sanity_check_keys();
+    }
+
+    #[test]
+    fn pull_with_m_eq_1() {
+        let mut ds = BlockDs::new(1, 999);
+        ds.insert(1, 5);
+        ds.insert(2, 3);
+        ds.insert(3, 7);
+
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![2]);
+        assert_eq!(boundary, 5);
+        ds.sanity_check_links();
+        ds.sanity_check_keys();
+
+        let PullResult { keys, boundary } = ds.pull();
+        assert_eq!(keys, vec![1]);
+        assert_eq!(boundary, 7);
+        ds.sanity_check_links();
+        ds.sanity_check_keys();
+
+        let PullResult { keys, boundary } = ds.pull();
+        assert_eq!(keys, vec![3]);
+        assert_eq!(boundary, 999);
+        assert!(ds.is_empty());
+        ds.sanity_check_links();
+        ds.sanity_check_keys();
+    }
+
+    #[test]
+    fn m_zero_is_treated_as_one() {
+        let mut ds = BlockDs::new(0, 500);
+        ds.insert(1, 10);
+        let PullResult { keys, boundary } = ds.pull();
+        assert_eq!(keys, vec![1]);
+        assert_eq!(boundary, 500);
+        assert!(ds.is_empty());
+
+        ds.sanity_check_links();
+        ds.sanity_check_keys();
+    }
+
+    #[test]
+    fn batch_prepend_empty_records_is_noop() {
+        let mut ds = BlockDs::new(2, 1000);
+        ds.insert(1, 10);
+        ds.batch_prepend(&[]);
+        assert_eq!(ds.len(), 1);
+
+        let PullResult { keys, boundary } = ds.pull();
+        assert_eq!(keys, vec![1]);
+        assert_eq!(boundary, 1000);
+        assert!(ds.is_empty());
+    }
+
+    #[test]
+    fn randomized_operations_match_naive_model_under_preconditions() {
+        // 说明：batch_prepend 的测试严格满足“records 内所有 value 严格小于当前全局最小值”的前置条件，
+        // 因为 BlockDs 的实现没有在 batch_prepend 内检查该条件。
+        let m = 4usize;
+        let upper = 1000u64;
+        let mut ds = BlockDs::new(m, upper);
+        let mut model = NaiveModel::new(m, upper);
+
+        let mut seed: u64 = 0x1234_abcd_5678_ef01;
+        let mut next_u64 = || {
+            // LCG：足够用来生成确定性的测试数据。
+            seed = seed
+                .wrapping_mul(6364136223846793005u64)
+                .wrapping_add(1442695040888963407u64);
+            seed
+        };
+
+        let key_space = 0usize..16usize;
+        let mut history: Vec<String> = Vec::new();
+        for _step in 0..160 {
+            let op = next_u64() % 100;
+            if op < 55 {
+                // insert
+                let key = key_space.start + (next_u64() as usize % key_space.len());
+                let value = 1 + (next_u64() % upper.max(1));
+                history.push(format!("insert({}, {})", key, value));
+                ds.insert(key, value);
+                model.insert(key, value);
+                ds.sanity_check_links();
+                ds.sanity_check_keys();
+            } else if op < 82 {
+                // batch_prepend
+                let cur_min = model.min_value().unwrap_or(upper + 1);
+                if cur_min <= 1 {
+                    history.push("skip(batch_prepend)".to_string());
+                    continue;
+                }
+
+                let cnt = 1usize + (next_u64() as usize % 5);
+                let mut records: Vec<(usize, u64)> = Vec::with_capacity(cnt);
+                for _ in 0..cnt {
+                    let key = key_space.start + (next_u64() as usize % key_space.len());
+                    let value = 1 + (next_u64() % (cur_min - 1).max(1));
+                    // 保证严格小于 cur_min
+                    let value = value.min(cur_min - 1).max(1);
+                    records.push((key, value));
+                }
+
+                history.push(format!("batch_prepend({:?})", records));
+                ds.batch_prepend(&records);
+                model.batch_prepend(&records);
+                ds.sanity_check_links();
+                ds.sanity_check_keys();
+            } else {
+                // pull
+                let snapshot: Vec<(usize, u64)> = model.map.iter().map(|(&k, &v)| (k, v)).collect();
+                let mut snapshot_sorted = snapshot.clone();
+                snapshot_sorted.sort_unstable_by_key(|&(k, v)| (v, k));
+                history.push("pull()".to_string());
+                let PullResult { boundary, mut keys } = ds.pull();
+                let (b2, mut keys2) = model.pull();
+                keys.sort_unstable();
+                keys2.sort_unstable();
+
+                if boundary != b2 || keys != keys2 {
+                    // 失败时打印足够定位信息：step 历史 + pull 前模型快照。
+                    panic!(
+                        "random mismatch: boundary ds={} model={} keys ds={:?} model={:?}\nmodel_len_before={} snapshot_sorted={:?}\nlast_ops={:?}",
+                        boundary,
+                        b2,
+                        keys,
+                        keys2,
+                        snapshot_sorted.len(),
+                        snapshot_sorted,
+                        history.iter().rev().take(12).cloned().collect::<Vec<_>>()
+                    );
+                }
+
+                ds.sanity_check_links();
+                ds.sanity_check_keys();
+                assert_eq!(ds.is_empty(), model.is_empty());
+                assert_eq!(ds.len(), model.len());
+            }
+        }
     }
 }
