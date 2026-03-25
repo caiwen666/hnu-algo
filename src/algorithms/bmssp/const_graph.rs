@@ -42,9 +42,7 @@ impl ConstGraph {
         let mut in_set: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); n];
         for (u, edges) in graph.iter().enumerate() {
             for &(v, w) in edges {
-                if v >= n {
-                    continue;
-                }
+                debug_assert!(v < n);
                 out_min[u]
                     .entry(v)
                     .and_modify(|old| *old = (*old).min(w))
