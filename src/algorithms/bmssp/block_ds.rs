@@ -62,8 +62,9 @@ impl Block {
 pub struct BlockDs {
     m: usize,
     upper_bound_b: u64,
-    _max_insertions_n: usize,
     key_to_node: HashMap<usize, usize>,
+    // block 和 node 被删除时，会从 key_to_node 和链表里真实删除
+    // 但仍留在 nodes 和 blocks 中
     nodes: Vec<Node>,
     blocks: Vec<Block>,
     d0_head: Option<usize>,
@@ -74,11 +75,16 @@ pub struct BlockDs {
 }
 
 impl BlockDs {
-    pub fn new(max_insertions_n: usize, m: usize, upper_bound_b: u64) -> Self {
+    /// 创建一个新的 BlockDs
+    ///
+    /// # Parameters
+    ///
+    /// - m: 每个 block 的最大节点数量，也是 pull 操作返回的节点数量
+    /// - upper_bound_b: 数据结构中 value 的上界
+    pub fn new(m: usize, upper_bound_b: u64) -> Self {
         let mut ds = Self {
             m: m.max(1),
             upper_bound_b,
-            _max_insertions_n: max_insertions_n,
             // TODO: 使用内存池优化
             key_to_node: HashMap::new(),
             nodes: Vec::new(),
@@ -96,19 +102,17 @@ impl BlockDs {
         ds
     }
 
-    // checked
     /// 判断当前数据结构是否为空
     pub fn is_empty(&self) -> bool {
         self.key_to_node.is_empty()
     }
 
-    // checked
     /// 获取当前数据结构中节点的数量
     pub fn len(&self) -> usize {
         self.key_to_node.len()
     }
 
-    /// 插入一个节点，如果节点已经存在，则更新其值
+    /// 插入一个节点，如果节点已经存在，则对其值取 min
     ///
     /// # Parameters
     ///
@@ -123,7 +127,11 @@ impl BlockDs {
             panic!("value is greater than upper bound");
         }
         if let Some(&old_id) = self.key_to_node.get(&key) {
-            self.delete_node(old_id);
+            if self.nodes[old_id].value > value {
+                self.delete_node(old_id);
+            } else {
+                return;
+            }
         }
 
         let block_id = self.locate_d1_block(value);
@@ -136,45 +144,59 @@ impl BlockDs {
         }
     }
 
-    pub fn batch_prepend(&mut self, records: &[(usize, u64)]) {
+    /// 插入一批 key-value
+    ///
+    /// 类似 insert 的约定，如果 key 在先前已经存在，会把之前的删掉（直接删，因为 batch_prepend 的 value 必然更小）
+    ///
+    /// 如果要插入的节点链表中存在相同的 key，则只取 value 最小的
+    ///
+    /// # Parameters
+    ///
+    /// - records: 要插入的节点列表。
+    ///
+    /// # Preconditions
+    ///
+    /// - 所有的 value 必须严格小于当前数据结构中已有的 value 的最小值。该函数不会对这个条件进行任何的检查（包括 debug assertions）。
+    pub fn batch_prepend(&mut self, records: Vec<(usize, u64)>) {
         if records.is_empty() {
             return;
         }
-        let mut best_in_batch = HashMap::<usize, u64>::new();
-        for &(k, v) in records {
-            best_in_batch
-                .entry(k)
-                .and_modify(|old| *old = min(*old, v))
-                .or_insert(v);
+
+        // TODO：复用内存池来砍掉这块的内存分配
+        let mut insert_records: HashMap<usize, u64> = HashMap::new();
+        for (key, value) in records.iter().copied() {
+            if let Some(&old_node_id) = self.key_to_node.get(&key) {
+                self.delete_node(old_node_id);
+            }
+            insert_records
+                .entry(key)
+                .and_modify(|v| *v = (*v).min(value))
+                .or_insert(value);
         }
 
-        let mut effective = Vec::<(usize, u64)>::new();
-        for (k, v) in best_in_batch {
-            if let Some(&old_id) = self.key_to_node.get(&k) {
-                if v >= self.nodes[old_id].value {
-                    continue;
-                }
+        let mut insert_records = insert_records.into_iter().collect::<Vec<_>>();
+
+        // 论文中使用 BFPRT 来进行递归划分
+        // 考虑到 BFPRT 的常数可能较大，这里直接使用排序
+        insert_records.sort_unstable_by_key(|&(k, v)| (v, k));
+
+        // 如果 records 中存在相同的 key，则删除之前的
+        for (key, _) in records.iter() {
+            if let Some(&old_id) = self.key_to_node.get(key) {
                 self.delete_node(old_id);
             }
-            effective.push((k, v));
         }
-        if effective.is_empty() {
-            return;
-        }
-
-        effective.sort_unstable_by_key(|&(k, v)| (v, k));
-        let block_cap = if effective.len() <= self.m {
-            self.m
-        } else {
-            self.m.div_ceil(2)
-        };
 
         let mut cursor = 0usize;
         let mut block_ids = Vec::<usize>::new();
-        while cursor < effective.len() {
-            let end = min(cursor + block_cap, effective.len());
-            let slice = &effective[cursor..end];
-            let upper = slice.last().map(|&(_, v)| v).unwrap_or(0);
+        while cursor < records.len() {
+            let end = min(cursor + self.m, records.len());
+            // [cursor, end) 这个区间为一块
+            let slice = &records[cursor..end];
+            let upper = slice
+                .last()
+                .map(|&(_, v)| v)
+                .expect("slice cannot be empty");
             let block_id = self.new_block(BlockSeq::D0, upper);
             block_ids.push(block_id);
             for &(k, v) in slice {
@@ -190,78 +212,75 @@ impl BlockDs {
         }
     }
 
+    /// 拉取最小 M 个节点
+    ///
+    /// 如果数据结构内的节点数量小于 M，则返回所有节点
+    ///
+    /// # Returns
+    ///
+    /// 返回拉取到的节点和上界
+    ///
+    /// 其中上界为剩余数据结构中的最小值，如果剩余数据结构为空，则上界为数据结构的上界
     pub fn pull(&mut self) -> PullResult {
         let mut cand_ids = Vec::<usize>::new();
-        let mut c0 = 0usize;
-        let mut c1 = 0usize;
-        let mut d0_exhausted = true;
-        let mut d1_exhausted = true;
 
-        let mut cur0 = self.d0_head;
-        while let Some(bid) = cur0 {
-            if c0 >= self.m {
-                d0_exhausted = false;
-                break;
+        let mut collect = |head_block_id: Option<usize>| {
+            let mut cur = head_block_id;
+            let mut collected_count = 0;
+            while let Some(bid) = cur {
+                if collected_count >= self.m {
+                    break;
+                }
+                let mut p = self.blocks[bid].head;
+                while let Some(id) = p {
+                    cand_ids.push(id);
+                    collected_count += 1;
+                    p = self.nodes[id].next;
+                }
+                cur = self.blocks[bid].next;
             }
-            let mut p = self.blocks[bid].head;
-            while let Some(id) = p {
-                cand_ids.push(id);
-                c0 += 1;
-                p = self.nodes[id].next;
-            }
-            cur0 = self.blocks[bid].next;
-        }
+        };
 
-        let d1_blocks: Vec<usize> = self.d1_upper_index.iter().map(|&(_, id)| id).collect();
-        for bid in d1_blocks {
-            if c1 >= self.m {
-                d1_exhausted = false;
-                break;
-            }
-            let mut p = self.blocks[bid].head;
-            while let Some(id) = p {
-                cand_ids.push(id);
-                c1 += 1;
-                p = self.nodes[id].next;
-            }
-        }
+        collect(self.d0_head);
+        collect(self.d1_head);
 
-        let result_ids = if d0_exhausted && d1_exhausted && cand_ids.len() <= self.m {
-            cand_ids
+        // pending_boundary 是 None 的话说明还不能确定，等把节点删完之后再求数据结构中剩余的 value 最小值
+        let (result_ids, pending_boundary) = if cand_ids.len() < self.m {
+            // 如果是小于 m 的话，说明两个链表都遍历完了，上界就是整个数据结构的上界
+            (cand_ids, Some(self.upper_bound_b))
+        } else if cand_ids.len() == self.m {
+            (cand_ids, None)
         } else {
             cand_ids.sort_unstable_by_key(|&id| (self.nodes[id].value, self.nodes[id].key));
-            cand_ids.into_iter().take(self.m).collect()
+            let boundary_node_id = cand_ids[self.m];
+            // TODO 直接原地截掉前 m 个
+            (
+                cand_ids.into_iter().take(self.m).collect(),
+                Some(self.nodes[boundary_node_id].value),
+            )
         };
 
         for &id in &result_ids {
-            if self.nodes[id].alive {
-                self.delete_node(id);
-            }
+            debug_assert!(self.nodes[id].alive);
+            self.delete_node(id);
         }
 
-        let boundary = if self.is_empty() {
-            self.upper_bound_b
-        } else {
-            self.min_remaining_value().unwrap_or(self.upper_bound_b)
-        };
+        let boundary =
+            pending_boundary.unwrap_or(self.min_remaining_value().unwrap_or(self.upper_bound_b));
 
-        let mut keys = result_ids
+        let keys = result_ids
             .iter()
             .map(|&id| self.nodes[id].key)
             .collect::<Vec<_>>();
-        keys.sort_unstable();
-        keys.dedup();
         PullResult { boundary, keys }
     }
 
-    // checked
     fn new_block(&mut self, seq: BlockSeq, upper: u64) -> usize {
         let id = self.blocks.len();
         self.blocks.push(Block::new(seq, upper));
         id
     }
 
-    // checked
     fn new_node(&mut self, key: usize, value: u64, block_id: usize) -> usize {
         let id = self.nodes.len();
         self.nodes.push(Node {
@@ -275,6 +294,11 @@ impl BlockDs {
         id
     }
 
+    /// 把某个 block 插入到 d0 的头部
+    ///
+    /// # Parameters
+    ///
+    /// - block_id: 要插入的 block_id
     fn prepend_d0_block(&mut self, block_id: usize) {
         let old = self.d0_head;
         self.blocks[block_id].prev = None;
@@ -287,7 +311,6 @@ impl BlockDs {
         self.d0_head = Some(block_id);
     }
 
-    // checked
     /// 把某个节点插入到某个 block 的尾部
     ///
     /// # Parameters
@@ -307,7 +330,6 @@ impl BlockDs {
         self.blocks[block_id].len += 1;
     }
 
-    // checked
     /// 查找第一个上界大于等于 value 的 block
     ///
     /// # Returns
@@ -323,7 +345,6 @@ impl BlockDs {
         id
     }
 
-    // checked
     /// 当 block 内的节点数量大于 m 时，将 block 分裂为两个 block
     ///
     /// # Parameters
@@ -343,10 +364,7 @@ impl BlockDs {
         ids.sort_unstable_by_key(|&id| (self.nodes[id].value, self.nodes[id].key));
         let mid = ids.len() / 2;
         let left_upper = self.nodes[ids[mid - 1]].value;
-        let right_upper = ids
-            .last()
-            .map(|&id| self.nodes[id].value)
-            .expect("block cannot be empty");
+        let right_upper = self.blocks[block_id].upper;
 
         // 分裂出来的两个 block，左边的复用原来的 block，但重新初始化
         self.d1_upper_index
@@ -361,7 +379,6 @@ impl BlockDs {
         self.d1_upper_index.insert((right_upper, new_id));
     }
 
-    // checked
     /// 收集 block 内的所有节点的 id
     ///
     /// # Parameters
@@ -381,7 +398,6 @@ impl BlockDs {
         out
     }
 
-    // checked
     /// 用某个新的节点列表和新的上界来重新初始化 block
     ///
     /// # Parameters
@@ -405,7 +421,6 @@ impl BlockDs {
         }
     }
 
-    // checked
     /// 插入一个 block 到 d1 中。插入在 left_id 之后
     ///
     /// # Parameters
@@ -424,10 +439,13 @@ impl BlockDs {
         }
     }
 
+    /// 删除一个节点
+    ///
+    /// # Parameters
+    ///
+    /// - node_id: 要删除的节点 id
     fn delete_node(&mut self, node_id: usize) {
-        if !self.nodes[node_id].alive {
-            return;
-        }
+        debug_assert!(self.nodes[node_id].alive);
         let key = self.nodes[node_id].key;
         let block_id = self.nodes[node_id].block_id;
         let prev = self.nodes[node_id].prev;
@@ -447,20 +465,24 @@ impl BlockDs {
         self.nodes[node_id].prev = None;
         self.nodes[node_id].next = None;
         self.nodes[node_id].alive = false;
-        self.blocks[block_id].len = self.blocks[block_id].len.saturating_sub(1);
+        debug_assert!(self.blocks[block_id].len > 0);
+        self.blocks[block_id].len -= 1;
 
-        if self.key_to_node.get(&key) == Some(&node_id) {
-            self.key_to_node.remove(&key);
-        }
+        debug_assert!(self.key_to_node.contains_key(&key));
+        self.key_to_node.remove(&key);
+
         if self.blocks[block_id].len == 0 {
             self.remove_empty_block(block_id);
         }
     }
 
+    /// 删除一个空的 block
+    ///
+    /// # Parameters
+    ///
+    /// - block_id: 要删除的 block id
     fn remove_empty_block(&mut self, block_id: usize) {
-        if !self.blocks[block_id].alive {
-            return;
-        }
+        debug_assert!(self.blocks[block_id].alive);
         let prev = self.blocks[block_id].prev;
         let next = self.blocks[block_id].next;
         match self.blocks[block_id].seq {
@@ -490,6 +512,7 @@ impl BlockDs {
                     self.d1_tail = prev;
                 }
                 if self.d1_head.is_none() {
+                    // 如果 d1 为空的话，则类似初始化时的那样，新建一个初始 block
                     let fresh = self.new_block(BlockSeq::D1, self.upper_bound_b);
                     self.d1_head = Some(fresh);
                     self.d1_tail = Some(fresh);
@@ -502,6 +525,15 @@ impl BlockDs {
         self.blocks[block_id].next = None;
     }
 
+    /// 获取 block 中的 value 最小值
+    ///
+    /// # Parameters
+    ///
+    /// - block_id: 要获取最小值的 block id
+    ///
+    /// # Returns
+    ///
+    /// 如果 block 为空，则返回 None
     fn block_min_value(&self, block_id: usize) -> Option<u64> {
         let mut p = self.blocks[block_id].head;
         let mut ans: Option<u64> = None;
@@ -515,13 +547,14 @@ impl BlockDs {
         ans
     }
 
+    /// 获取剩余数据结构中的最小值
+    ///
+    /// # Returns
+    ///
+    /// 如果剩余数据结构为空，则返回 None
     fn min_remaining_value(&self) -> Option<u64> {
         let d0_min = self.d0_head.and_then(|id| self.block_min_value(id));
-        let d1_min = self
-            .d1_upper_index
-            .iter()
-            .next()
-            .and_then(|&(_, id)| self.block_min_value(id));
+        let d1_min = self.d1_head.and_then(|id| self.block_min_value(id));
         match (d0_min, d1_min) {
             (Some(a), Some(b)) => Some(min(a, b)),
             (Some(a), None) => Some(a),
@@ -531,6 +564,15 @@ impl BlockDs {
     }
 
     #[cfg(test)]
+    /// 测试辅助：检查 `d0`/`d1` 两条 block 链表的结构不变式是否成立。
+    ///
+    /// 具体检查：
+    /// - 从 `d0_head` 沿着 `next` 遍历到末尾，每个经过的 block：
+    ///   - 必须 `alive == true`
+    ///   - `seq` 必须为 `BlockSeq::D0`
+    ///   - `prev` 必须等于遍历到的前一个 block id（链表的前向/后向指针一致）
+    /// - 遍历结束后，最后一个访问到的 block id 必须等于 `d0_tail`
+    /// - 对 `d1_head`/`d1_tail` 做同样的检查，并额外断言 `d1_upper_index` 非空
     fn sanity_check_links(&self) {
         let mut cur = self.d0_head;
         let mut prev = None;
@@ -557,6 +599,13 @@ impl BlockDs {
     }
 
     #[cfg(test)]
+    /// 测试辅助：检查 `key_to_node` 与 `nodes` 的一致性。
+    ///
+    /// 它验证：
+    /// - `key_to_node` 中每个条目都指向 `alive == true` 的 node，并且 node 的 `key`
+    ///   与 map 的 key 完全一致；
+    /// - `nodes` 数组中 `alive == true` 的节点数量，必须与 `key_to_node` 的条目数一致
+    ///   （确保“删除节点时从 map 移除 + alive 置为 false”这两步不会漏掉）。
     fn sanity_check_keys(&self) {
         for (&k, &nid) in &self.key_to_node {
             assert!(self.nodes[nid].alive);
@@ -569,47 +618,55 @@ impl BlockDs {
 
 #[cfg(test)]
 mod tests {
+    use crate::algorithms::bmssp::block_ds::PullResult;
+
     use super::BlockDs;
 
     #[test]
     fn insert_update_then_pull_returns_m_smallest() {
-        let mut ds = BlockDs::new(32, 2, 999);
+        let mut ds = BlockDs::new(2, 999);
         ds.insert(1, 30);
         ds.insert(2, 10);
         ds.insert(3, 20);
         ds.insert(2, 8);
         ds.insert(1, 40);
 
-        let out = ds.pull();
-        assert_eq!(out.keys, vec![2, 3]);
-        assert_eq!(out.boundary, 30);
+        // 1->30, 2->8, 3->20
+
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![2, 3]);
+        assert_eq!(boundary, 30);
         ds.sanity_check_links();
         ds.sanity_check_keys();
     }
 
     #[test]
     fn batch_prepend_keeps_smallest_per_key() {
-        let mut ds = BlockDs::new(64, 4, 1000);
+        let mut ds = BlockDs::new(4, 1000);
         ds.insert(10, 100);
         ds.insert(11, 110);
-        ds.batch_prepend(&[(1, 5), (2, 3), (1, 4), (10, 90), (10, 95)]);
+        let records = [(2, 3), (1, 4), (10, 90)];
+        ds.batch_prepend(records.to_vec());
 
-        let out = ds.pull();
-        assert_eq!(out.keys, vec![1, 2, 10, 11]);
-        assert_eq!(out.boundary, 1000);
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![1, 2, 10, 11]);
+        assert_eq!(boundary, 1000);
         ds.sanity_check_links();
         ds.sanity_check_keys();
     }
 
     #[test]
     fn pull_boundary_is_b_when_structure_becomes_empty() {
-        let mut ds = BlockDs::new(16, 2, 777);
+        let mut ds = BlockDs::new(2, 777);
         ds.insert(1, 10);
         ds.insert(2, 20);
 
-        let first = ds.pull();
-        assert_eq!(first.keys, vec![1, 2]);
-        assert_eq!(first.boundary, 777);
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![1, 2]);
+        assert_eq!(boundary, 777);
         assert!(ds.is_empty());
         ds.sanity_check_links();
         ds.sanity_check_keys();
@@ -617,35 +674,38 @@ mod tests {
 
     #[test]
     fn pull_boundary_is_smallest_remaining_value() {
-        let mut ds = BlockDs::new(64, 2, 500);
+        let mut ds = BlockDs::new(2, 500);
         ds.insert(1, 10);
         ds.insert(2, 20);
         ds.insert(3, 30);
         ds.insert(4, 40);
 
-        let out = ds.pull();
-        assert_eq!(out.keys, vec![1, 2]);
-        assert_eq!(out.boundary, 30);
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![1, 2]);
+        assert_eq!(boundary, 30);
         ds.sanity_check_links();
         ds.sanity_check_keys();
     }
 
     #[test]
     fn pull_does_not_mistake_prefix_for_all_elements() {
-        let mut ds = BlockDs::new(64, 2, 1000);
+        let mut ds = BlockDs::new(2, 1000);
         ds.insert(1, 10);
         ds.insert(2, 20);
         ds.insert(3, 30);
         ds.insert(4, 40);
         ds.insert(5, 50);
 
-        let first = ds.pull();
-        assert_eq!(first.keys, vec![1, 2]);
-        assert_eq!(first.boundary, 30);
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![1, 2]);
+        assert_eq!(boundary, 30);
 
-        let second = ds.pull();
-        assert_eq!(second.keys, vec![3, 4]);
-        assert_eq!(second.boundary, 50);
+        let PullResult { mut keys, boundary } = ds.pull();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![3, 4]);
+        assert_eq!(boundary, 50);
         ds.sanity_check_links();
         ds.sanity_check_keys();
     }
