@@ -1,5 +1,7 @@
 use std::cmp::min;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
+
+use rustc_hash::FxHashMap;
 
 use super::path_dist::PathDist;
 
@@ -65,7 +67,7 @@ impl Block {
 pub struct BlockDs {
     m: usize,
     upper_bound_b: PathDist,
-    key_to_node: HashMap<usize, usize>,
+    key_to_node: FxHashMap<usize, usize>,
     // block 和 node 被删除时，会从 key_to_node 和链表里真实删除
     // 但仍留在 nodes 和 blocks 中
     nodes: Vec<Node>,
@@ -92,7 +94,7 @@ impl BlockDs {
             m: m.max(1),
             upper_bound_b,
             // TODO: 使用内存池优化
-            key_to_node: HashMap::new(),
+            key_to_node: FxHashMap::default(),
             nodes: Vec::new(),
             blocks: Vec::new(),
             d0_head: None,
@@ -658,14 +660,14 @@ mod tests {
     use crate::algorithms::bmssp::block_ds::PullResult;
     use crate::algorithms::bmssp::path_dist::PathDist;
 
-    use std::collections::HashMap;
+    use rustc_hash::FxHashMap;
 
     use super::BlockDs;
 
     struct NaiveModel {
         m: usize,
         upper: PathDist,
-        map: HashMap<usize, PathDist>,
+        map: FxHashMap<usize, PathDist>,
     }
 
     impl NaiveModel {
@@ -673,7 +675,7 @@ mod tests {
             Self {
                 m: m.max(1),
                 upper,
-                map: HashMap::new(),
+                map: FxHashMap::default(),
             }
         }
 
@@ -711,7 +713,7 @@ mod tests {
 
             // 和 BlockDs.batch_prepend 一致：对同一个 key，在 records 内取最小值，
             // 然后覆盖掉旧值（测试中会保证 records 的值严格小于当前全局最小值）。
-            let mut per_key: HashMap<usize, PathDist> = HashMap::new();
+            let mut per_key: FxHashMap<usize, PathDist> = FxHashMap::default();
             for &(k, v) in records {
                 per_key
                     .entry(k)
@@ -929,11 +931,11 @@ mod tests {
         // 先确认 batch_prepend 语义本身是否正确（value 取 records 内最小值，key 对应值覆盖）。
         // 如果这一步就不符合预期，则是 batch_prepend 插入逻辑有问题；
         // 如果这一步符合，但 pull 不符合，则问题更可能出在 pull 的候选集/边界计算上。
-        let mut actual: HashMap<usize, PathDist> = HashMap::new();
+        let mut actual: FxHashMap<usize, PathDist> = FxHashMap::default();
         for (&k, &nid) in &ds.key_to_node {
             actual.insert(k, ds.nodes[nid].value);
         }
-        let expected: HashMap<usize, PathDist> = [
+        let expected: FxHashMap<usize, PathDist> = [
             (1, PathDist::from_dis(10, 1)),
             (2, PathDist::from_dis(35, 2)),
             (3, PathDist::from_dis(70, 3)),

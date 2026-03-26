@@ -1,4 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
+
+use rustc_hash::FxHashMap;
 
 /// 常度数图（入度/出度 ≤ 2），用于 BMSSP/论文算法的前置变换。
 ///
@@ -52,7 +54,7 @@ impl ConstGraph {
         }
 
         // 2) 为每个 (v,w)（w 是 v 的入/出相邻点）创建一个常度数图点 x_{v,w}
-        let mut pair_to_id: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut pair_to_id: FxHashMap<(usize, usize), usize> = FxHashMap::default();
         let mut const_to_orig: Vec<usize> = Vec::new();
         let mut per_v_nodes: Vec<Vec<usize>> = vec![Vec::new(); n];
 

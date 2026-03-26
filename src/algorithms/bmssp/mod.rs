@@ -3,7 +3,9 @@ pub mod const_graph;
 pub mod path_dist;
 
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashSet, VecDeque};
+use std::collections::{BinaryHeap, VecDeque};
+
+pub use rustc_hash::FxHashSet;
 
 use crate::algorithms::bmssp::block_ds::{BlockDs, PullResult};
 use crate::algorithms::bmssp::const_graph::ConstGraph;
@@ -13,8 +15,8 @@ use crate::algorithms::bmssp::path_dist::PathDist;
 pub struct BMSSPResult {
     /// 新的边界 B'（论文中定义为 boundary）
     pub new_boundary: PathDist,
-    /// complete 的点集合 U
-    pub complete: HashSet<usize>,
+    /// complete 的点集合 U（`FxHashSet`：与 `std` 的 `HashSet` 语义相同，哈希更快）
+    pub complete: FxHashSet<usize>,
 }
 
 /// BMSSP（Bounded Multi-Source Shortest Path）的递归子过程上下文。
@@ -146,7 +148,7 @@ impl BMSSP {
             block_ds.insert(x, self.now_dis[x]);
             now_boundary = now_boundary.min(self.now_dis[x]);
         }
-        let mut u_set = HashSet::new();
+        let mut u_set = FxHashSet::default();
         while u_set.len() < k_size_limit && !block_ds.is_empty() {
             let PullResult {
                 boundary: upper_boundary,
@@ -217,16 +219,16 @@ impl BMSSP {
     /// # Panics
     ///
     /// - 如果 s 为空，则 panic。
-    fn find_pivots(&mut self, s: &[usize], b: PathDist) -> (HashSet<usize>, HashSet<usize>) {
+    fn find_pivots(&mut self, s: &[usize], b: PathDist) -> (FxHashSet<usize>, FxHashSet<usize>) {
         let k = self.k;
         assert!(!s.is_empty(), "s must not be empty");
 
-        let mut w_set: HashSet<usize> = s.iter().copied().collect();
+        let mut w_set: FxHashSet<usize> = s.iter().copied().collect();
 
         // 使用 01 滚动数组来维护 wi
         // last_wi_index 即为 1 - now_wi_index
         let mut now_wi_index = 1;
-        let mut wi = [w_set.clone(), HashSet::new()];
+        let mut wi = [w_set.clone(), FxHashSet::default()];
 
         for _ in 0..k {
             let (slot0, slot1) = wi.split_at_mut(1);
@@ -279,7 +281,7 @@ impl BMSSP {
         }
 
         let mut queue: VecDeque<usize> = VecDeque::new();
-        let mut p = HashSet::new();
+        let mut p = FxHashSet::default();
         for &u in w_set.iter() {
             if self.pool2[u] == usize::MAX {
                 let mut subtree_size = 1;
@@ -327,7 +329,7 @@ impl BMSSP {
             "base case requires source reachable and b > now_dis[s]"
         );
 
-        let mut u0 = HashSet::new();
+        let mut u0 = FxHashSet::default();
         u0.insert(s);
 
         let mut heap: BinaryHeap<Reverse<(PathDist, usize)>> = BinaryHeap::new();
@@ -372,7 +374,7 @@ impl BMSSP {
             let complete = u0
                 .into_iter()
                 .filter(|&v| self.now_dis[v] < new_boundary)
-                .collect::<HashSet<_>>();
+                .collect::<FxHashSet<_>>();
 
             BMSSPResult {
                 new_boundary,
@@ -408,7 +410,7 @@ mod tests {
         let b = big_b();
         let r = m.base_case(s, b);
         assert_eq!(r.new_boundary, b);
-        assert_eq!(r.complete, HashSet::from([s]));
+        assert_eq!(r.complete, FxHashSet::from_iter([s]));
     }
 
     #[test]
@@ -418,7 +420,7 @@ mod tests {
         let b = big_b();
         let r = m.base_case(s, b);
         assert_eq!(r.new_boundary, b);
-        assert_eq!(r.complete, HashSet::from([s]));
+        assert_eq!(r.complete, FxHashSet::from_iter([s]));
     }
 
     /// `k = 1`（例如 n=3）时需抽出 `k+1=2` 个不同点才进入「截断」分支。
@@ -474,7 +476,7 @@ mod tests {
         let r = m.base_case(s, b);
         assert_eq!(m.now_dis[rep1], PathDist::MAX);
         assert_eq!(r.new_boundary, b);
-        assert_eq!(r.complete, HashSet::from([s]));
+        assert_eq!(r.complete, FxHashSet::from_iter([s]));
     }
 
     #[test]
@@ -520,7 +522,7 @@ mod tests {
         assert!(m.now_dis[s] < b);
         let r = m.base_case(s, b);
         assert_eq!(r.new_boundary, b);
-        assert_eq!(r.complete, HashSet::from([s]));
+        assert_eq!(r.complete, FxHashSet::from_iter([s]));
     }
 
     /// `|W| > k|S|` 时（论文第 15 行）应返回 `P = S`。`n = 4` 时 `k = 1`，一星三叶一轮可达 `|W| = 4`。
@@ -530,7 +532,7 @@ mod tests {
         let mut m = BMSSP::new(cg, 0);
         let s = [0usize];
         let (p, w) = m.find_pivots(&s, PathDist::scalar_upper(100));
-        assert_eq!(p, HashSet::from([0usize]));
+        assert_eq!(p, FxHashSet::from_iter([0usize]));
         assert!(w.len() >= 4);
     }
 
