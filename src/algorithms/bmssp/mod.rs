@@ -73,13 +73,15 @@ impl BMSSP {
         }
     }
 
+    #[inline]
     pub fn k(&self) -> usize {
         self.k
     }
 
     /// 求 source 到所有点的最短路
     pub fn solve(&mut self) {
-        self.bmssp(self.top_l, &HashSet::from([self.source]), PathDist::MAX);
+        let source = self.source;
+        self.bmssp(self.top_l, std::slice::from_ref(&source), PathDist::MAX);
     }
 
     /// 获取最短路结果
@@ -96,7 +98,7 @@ impl BMSSP {
     /// # Parameters
     ///
     /// - `l` - 当前层数。
-    /// - `s` - 前沿集合。
+    /// - `s` - 前沿顶点切片（与原先 `HashSet` 语义相同，避免每层额外分配）。
     /// - `b` - 上界。
     ///
     /// # Returns
@@ -112,7 +114,7 @@ impl BMSSP {
     ///
     /// - 如果 `s` 为空，则 panic。
     /// - 如果 `s` 的大小大于了 $2^{lt}$，则 panic。
-    fn bmssp(&mut self, l: usize, s: &HashSet<usize>, b: PathDist) -> BMSSPResult {
+    fn bmssp(&mut self, l: usize, s: &[usize], b: PathDist) -> BMSSPResult {
         let t = self.t;
         let k = self.k;
         let size_limit = 2usize.pow(t as u32 * l as u32);
@@ -122,13 +124,7 @@ impl BMSSP {
 
         if l == 0 {
             assert!(s.len() == 1, "s must have exactly one element when l = 0");
-            let res = self.base_case(
-                s.iter()
-                    .copied()
-                    .next()
-                    .expect("s must have exactly one element when l = 0"),
-                b,
-            );
+            let res = self.base_case(s[0], b);
             return res;
         }
 
@@ -145,8 +141,6 @@ impl BMSSP {
                 boundary: upper_boundary,
                 keys,
             } = block_ds.pull();
-            // TODO BlockDs 也直接返回 HashSet 得了
-            let keys = keys.into_iter().collect::<HashSet<_>>();
             let BMSSPResult {
                 new_boundary,
                 complete,
@@ -195,7 +189,7 @@ impl BMSSP {
     ///
     /// # Parameters
     ///
-    /// - `s` - 前沿集合。
+    /// - `s` - 前沿顶点切片。
     /// - `b` - 上界。
     ///
     /// # Returns
@@ -209,7 +203,7 @@ impl BMSSP {
     /// # Panics
     ///
     /// - 如果 s 为空，则 panic。
-    fn find_pivots(&mut self, s: &HashSet<usize>, b: PathDist) -> (HashSet<usize>, HashSet<usize>) {
+    fn find_pivots(&mut self, s: &[usize], b: PathDist) -> (HashSet<usize>, HashSet<usize>) {
         let k = self.k;
         assert!(!s.is_empty(), "s must not be empty");
 
@@ -245,7 +239,7 @@ impl BMSSP {
             w_set.extend(wi_now.iter().copied());
 
             if w_set.len() > k * s.len() {
-                return (s.clone(), w_set);
+                return (s.iter().copied().collect(), w_set);
             }
 
             now_wi_index = 1 - now_wi_index;
@@ -275,9 +269,11 @@ impl BMSSP {
             queue.push_back(root);
             let mut size = 1usize;
             while let Some(u) = queue.pop_front() {
-                for &v in children.get(&u).unwrap_or(&Vec::new()).iter() {
-                    queue.push_back(v);
-                    size += 1;
+                if let Some(ch) = children.get(&u) {
+                    for &v in ch {
+                        queue.push_back(v);
+                        size += 1;
+                    }
                 }
             }
             size
@@ -521,9 +517,9 @@ mod tests {
     fn find_pivots_large_visit_set_returns_whole_frontier_as_pivots() {
         let cg = ConstGraph::new(vec![vec![(1, 1), (2, 1), (3, 1)], vec![], vec![], vec![]]);
         let mut m = BMSSP::new(cg, 0);
-        let s = HashSet::from([0usize]);
+        let s = [0usize];
         let (p, w) = m.find_pivots(&s, PathDist::scalar_upper(100));
-        assert_eq!(p, s);
+        assert_eq!(p, HashSet::from([0usize]));
         assert!(w.len() >= 4);
     }
 
@@ -532,7 +528,7 @@ mod tests {
     fn find_pivots_one_bf_round_chains_relaxations() {
         let cg = ConstGraph::new(vec![vec![(1, 10), (2, 1)], vec![], vec![(1, 1)]]);
         let mut m = BMSSP::new(cg, 0);
-        let s = HashSet::from([0usize]);
+        let s = [0usize];
         let _ = m.find_pivots(&s, PathDist::scalar_upper(100));
         assert_eq!(m.now_dis[1].dis, 10);
     }

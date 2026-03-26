@@ -54,6 +54,7 @@ impl PathDist {
 }
 
 impl Ord for PathDist {
+    #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.dis
             .cmp(&other.dis)
@@ -64,6 +65,7 @@ impl Ord for PathDist {
 }
 
 impl PartialOrd for PathDist {
+    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }

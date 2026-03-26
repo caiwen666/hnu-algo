@@ -46,6 +46,7 @@ struct Block {
 }
 
 impl Block {
+    #[inline]
     fn new(seq: BlockSeq, upper: PathDist) -> Self {
         Self {
             seq,
@@ -105,11 +106,13 @@ impl BlockDs {
     }
 
     /// 判断当前数据结构是否为空
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.key_to_node.is_empty()
     }
 
     /// 获取当前数据结构中节点的数量
+    #[inline]
     pub fn len(&self) -> usize {
         self.key_to_node.len()
     }
@@ -189,13 +192,6 @@ impl BlockDs {
         // 考虑到 BFPRT 的常数可能较大，这里直接使用排序
         insert_records.sort_unstable_by_key(|&(k, v)| (v, k));
 
-        // 如果 records 中存在相同的 key，则删除之前的
-        for (key, _) in insert_records.iter() {
-            if let Some(&old_id) = self.key_to_node.get(key) {
-                self.delete_node(old_id);
-            }
-        }
-
         let mut cursor = 0usize;
         let mut block_ids = Vec::<usize>::new();
         while cursor < insert_records.len() {
@@ -231,7 +227,8 @@ impl BlockDs {
     ///
     /// 其中上界为剩余数据结构中的最小值，如果剩余数据结构为空，则上界为数据结构的上界
     pub fn pull(&mut self) -> PullResult {
-        let mut cand_ids = Vec::<usize>::new();
+        // 多数情况下只需从前缀若干 block 取满 m 个节点；预留略大于 m 避免频繁 realloc
+        let mut cand_ids = Vec::with_capacity(self.m.saturating_mul(2));
 
         let mut collect = |head_block_id: Option<usize>| {
             let mut cur = head_block_id;
@@ -260,8 +257,11 @@ impl BlockDs {
         } else if cand_ids.len() == self.m {
             (cand_ids, None)
         } else {
-            cand_ids.sort_unstable_by_key(|&id| (self.nodes[id].value, self.nodes[id].key));
-            (cand_ids.into_iter().take(self.m).collect(), None)
+            let m = self.m;
+            let nodes = &self.nodes;
+            cand_ids.select_nth_unstable_by_key(m - 1, |&id| (nodes[id].value, nodes[id].key));
+            cand_ids.truncate(m);
+            (cand_ids, None)
         };
 
         for &id in &result_ids {
@@ -285,12 +285,14 @@ impl BlockDs {
         PullResult { boundary, keys }
     }
 
+    #[inline]
     fn new_block(&mut self, seq: BlockSeq, upper: PathDist) -> usize {
         let id = self.blocks.len();
         self.blocks.push(Block::new(seq, upper));
         id
     }
 
+    #[inline]
     fn new_node(&mut self, key: usize, value: PathDist, block_id: usize) -> usize {
         let id = self.nodes.len();
         self.nodes.push(Node {
@@ -309,6 +311,7 @@ impl BlockDs {
     /// # Parameters
     ///
     /// - block_id: 要插入的 block_id
+    #[inline]
     fn prepend_d0_block(&mut self, block_id: usize) {
         let old = self.d0_head;
         self.blocks[block_id].prev = None;
@@ -327,6 +330,7 @@ impl BlockDs {
     ///
     /// - block_id: 要插入的 block_id
     /// - node_id: 要插入的节点 id
+    #[inline]
     fn push_node_to_block_tail(&mut self, block_id: usize, node_id: usize) {
         let tail = self.blocks[block_id].tail;
         self.nodes[node_id].prev = tail;
@@ -345,6 +349,7 @@ impl BlockDs {
     /// # Returns
     ///
     /// 返回 block_id
+    #[inline]
     fn locate_d1_block(&self, value: PathDist) -> usize {
         let (_, id) = self
             .d1_upper_index
@@ -370,9 +375,11 @@ impl BlockDs {
         debug_assert!(self.blocks[block_id].len > self.m);
 
         let mut ids = self.collect_block_nodes(block_id);
-        // 原论文中是需要用 BFPRT 找中位数的。考虑到 BFPRT 的常数可能较大，这里改用排序
-        ids.sort_unstable_by_key(|&id| (self.nodes[id].value, self.nodes[id].key));
+        // 原论文用 BFPRT 找中位数划分；这里用 select_nth 将前 mid 个最小（按 value,key）放到 ids[0..mid]，平均 O(n)
         let mid = ids.len() / 2;
+        debug_assert!(mid > 0, "split requires more than m nodes");
+        let nodes = &self.nodes;
+        ids.select_nth_unstable_by_key(mid - 1, |&id| (nodes[id].value, nodes[id].key));
         let left_upper = self.nodes[ids[mid - 1]].value;
         let right_upper = self.blocks[block_id].upper;
 
@@ -437,6 +444,7 @@ impl BlockDs {
     ///
     /// - left_id: 要插入在哪个 block 的后面
     /// - new_id: 新插入的 block 的 id
+    #[inline]
     fn insert_d1_block_after(&mut self, left_id: usize, new_id: usize) {
         let right = self.blocks[left_id].next;
         self.blocks[new_id].prev = Some(left_id);
@@ -544,6 +552,7 @@ impl BlockDs {
     /// # Returns
     ///
     /// 如果 block 为空，则返回 None
+    #[inline]
     fn block_min_value(&self, block_id: usize) -> Option<PathDist> {
         let mut p = self.blocks[block_id].head;
         let mut ans: Option<PathDist> = None;
@@ -562,6 +571,7 @@ impl BlockDs {
     /// # Returns
     ///
     /// 如果剩余数据结构为空，则返回 None
+    #[inline]
     fn min_remaining_value(&self) -> Option<PathDist> {
         let d0_min = self.d0_head.and_then(|id| self.block_min_value(id));
         let d1_min = self.d1_head.and_then(|id| self.block_min_value(id));
