@@ -481,7 +481,7 @@ impl BlockDs {
         debug_assert!(self.key_to_node.contains_key(&key));
         self.key_to_node.remove(&key);
 
-        if self.blocks[block_id].len == 0 {
+        if self.blocks[block_id].len == 0 && self.blocks[block_id].upper != self.upper_bound_b {
             self.remove_empty_block(block_id);
         }
     }
@@ -1041,6 +1041,34 @@ mod tests {
         let PullResult { keys, boundary } = ds.pull();
         assert_eq!(keys, vec![3]);
         assert_eq!(boundary, PathDist::scalar_upper(777));
+
+        ds.sanity_check_links();
+        ds.sanity_check_keys();
+    }
+
+    /// 回归：`upper_bound_b = PathDist::MAX` 时，哨兵块（upper == MAX）可能在 D1 仍非空时被删除，
+    /// 若不及时补回，会导致后续 `insert` 在 `locate_d1_block` 找不到 `>= value` 的 block upper。
+    #[test]
+    fn d1_global_max_upper_sentinel_survives_nonempty_evictions_under_pathdist_max_bound() {
+        let b = PathDist::MAX;
+        let mut ds = BlockDs::new(2, b);
+
+        ds.insert(1, PathDist::new(10, 0, 1, 0));
+        ds.insert(2, PathDist::new(20, 0, 2, 0));
+        ds.insert(3, PathDist::new(30, 0, 3, 0));
+        ds.insert(4, PathDist::new(40, 0, 4, 0));
+
+        // 此时 1 2 在一个块，3 4 在一个块
+
+        ds.batch_prepend(&[
+            (3, PathDist::new(3, 0, 3, 0)),
+            (4, PathDist::new(4, 0, 4, 0)),
+        ]);
+
+        // 此时原来的 3 4 被删除
+
+        // 插入一个 value 很大但仍 < PathDist::MAX（全序）」的值：旧实现会在 locate_d1_block panic
+        ds.insert(99, PathDist::new(900, 0, 99, 0));
 
         ds.sanity_check_links();
         ds.sanity_check_keys();
