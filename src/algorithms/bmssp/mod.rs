@@ -30,6 +30,9 @@ pub struct BMSSP {
     /// t = floor(log^{2/3} n)
     t: usize,
 
+    /// 最顶层 bmssp 的层数
+    top_l: usize,
+
     /// 当前维护的距离估计 now_dis[·]，永远满足 now_dis[v] >= d(v)，其中 d(v) 为最短路
     /// 不可到达用 u64::MAX 表示。
     now_dis: Vec<PathDist>,
@@ -55,6 +58,7 @@ impl BMSSP {
         let logn = if n <= 1 { 0.0 } else { (n as f64).log2() };
         let k = ((logn.powf(1.0 / 3.0)).floor() as usize).max(1);
         let t = ((logn.powf(2.0 / 3.0)).floor() as usize).max(1);
+        let top_l = ((logn / t as f64).ceil() as usize).max(1);
 
         let mut now_dis = vec![PathDist::MAX; n];
         now_dis[source] = PathDist::new(0, 0, source, 0);
@@ -64,6 +68,7 @@ impl BMSSP {
             source,
             k,
             t,
+            top_l,
             now_dis,
         }
     }
@@ -73,15 +78,16 @@ impl BMSSP {
     }
 
     /// 求 source 到所有点的最短路
+    pub fn solve(&mut self) {
+        self.bmssp(self.top_l, &HashSet::from([self.source]), PathDist::MAX);
+    }
+
+    /// 获取最短路结果
     ///
     /// # Returns
     ///
     /// 返回一个数组 v，v(i) 表示 source 到 i 的最短路距离，不可到达用 u64::MAX 表示。
-    pub fn solve(mut self) -> Vec<u64> {
-        let n = self.graph.const_n();
-        let logn = if n <= 1 { 0.0 } else { (n as f64).log2() };
-        let top_l = ((logn / self.t as f64).ceil() as usize).max(1);
-        self.bmssp(top_l, &HashSet::from([self.source]), PathDist::MAX);
+    pub fn fetch_result(&self) -> Vec<u64> {
         self.now_dis.iter().map(|&d| d.dis).collect()
     }
 
@@ -536,8 +542,9 @@ mod tests {
         let g = vec![vec![(1, 4), (2, 1)], vec![], vec![(1, 2)]];
         let cg = ConstGraph::from_general_graph(&g);
         let source = cg.orig_to_const(0).unwrap();
-        let bmssp = BMSSP::new(cg.clone(), source);
-        let dist = bmssp.solve();
+        let mut bmssp = BMSSP::new(cg.clone(), source);
+        bmssp.solve();
+        let dist = bmssp.fetch_result();
         let mut actual = vec![u64::MAX; g.len()];
         for v in 0..g.len() {
             let rv = cg.orig_to_const(v).unwrap();

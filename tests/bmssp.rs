@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use hnu_algo::{
     algorithms::{
         bmssp::{BMSSP, const_graph::ConstGraph},
@@ -47,8 +49,12 @@ fn test_bmssp() {
         let cg = ConstGraph::from_general_graph(&graph);
         let source2 = cg.orig_to_const(source).expect("source in range");
 
-        let bmssp = BMSSP::new(cg.clone(), source2);
-        let dist2 = bmssp.solve();
+        let mut bmssp = BMSSP::new(cg.clone(), source2);
+        let timer = Instant::now();
+        bmssp.solve();
+        let duration = timer.elapsed();
+        let dist2 = bmssp.fetch_result();
+        println!("bmssp on ssp case {} took {:?}", index, duration);
 
         let mut actual = vec![u64::MAX; graph.len()];
         for v in 0..graph.len() {
