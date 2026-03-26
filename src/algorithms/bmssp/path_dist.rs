@@ -12,6 +12,13 @@ pub struct PathDist {
 }
 
 impl PathDist {
+    pub const MAX: Self = Self {
+        dis: u64::MAX,
+        hop: u32::MAX,
+        end: usize::MAX,
+        pred: usize::MAX,
+    };
+
     #[inline]
     pub const fn new(dis: u64, hop: u32, end: usize, pred: usize) -> Self {
         Self {
