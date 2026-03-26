@@ -5,6 +5,7 @@ pub mod path_dist;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
+use crate::algorithms::bmssp::block_ds::{BlockDs, PullResult};
 use crate::algorithms::bmssp::const_graph::ConstGraph;
 use crate::algorithms::bmssp::path_dist::PathDist;
 
@@ -24,8 +25,6 @@ pub struct BMSSP {
     graph: ConstGraph,
     source: usize,
 
-    /// 当前在常度数图上的点数 n
-    n: usize,
     /// k = floor(log^{1/3} n)
     k: usize,
     /// t = floor(log^{2/3} n)
@@ -63,7 +62,6 @@ impl BMSSP {
         Self {
             graph,
             source,
-            n,
             k,
             t,
             now_dis,
@@ -72,6 +70,119 @@ impl BMSSP {
 
     pub fn k(&self) -> usize {
         self.k
+    }
+
+    /// 求 source 到所有点的最短路
+    ///
+    /// # Returns
+    ///
+    /// 返回一个数组 v，v(i) 表示 source 到 i 的最短路距离，不可到达用 u64::MAX 表示。
+    pub fn solve(mut self) -> Vec<u64> {
+        let n = self.graph.const_n();
+        let logn = if n <= 1 { 0.0 } else { (n as f64).log2() };
+        let top_l = ((logn / self.t as f64).ceil() as usize).max(1);
+        self.bmssp(top_l, &HashSet::from([self.source]), PathDist::MAX);
+        self.now_dis.iter().map(|&d| d.dis).collect()
+    }
+
+    /// BMSSP 算法主体
+    ///
+    /// # Parameters
+    ///
+    /// - `l` - 当前层数。
+    /// - `s` - 前沿集合。
+    /// - `b` - 上界。
+    ///
+    /// # Returns
+    ///
+    /// 返回一个 BMSSPResult 结构体，包含新的边界 B' 和 complete 的点集合 U。
+    ///
+    ///
+    /// # Preconditions
+    ///
+    /// - 所有没 complete 的，且最短路小于 `b` 的点，其最短路必须要经过 `s` 中某个已经 complete 的点
+    ///
+    /// # Panics
+    ///
+    /// - 如果 `s` 为空，则 panic。
+    /// - 如果 `s` 的大小大于了 $2^{lt}$，则 panic。
+    fn bmssp(&mut self, l: usize, s: &HashSet<usize>, b: PathDist) -> BMSSPResult {
+        let t = self.t;
+        let k = self.k;
+        let size_limit = 2usize.pow(t as u32 * l as u32);
+        let k_size_limit = k * size_limit;
+        assert!(!s.is_empty(), "s must not be empty");
+        assert!(s.len() <= size_limit, "s is too large");
+
+        if l == 0 {
+            assert!(s.len() == 1, "s must have exactly one element when l = 0");
+            let res = self.base_case(
+                s.iter()
+                    .copied()
+                    .next()
+                    .expect("s must have exactly one element when l = 0"),
+                b,
+            );
+            return res;
+        }
+
+        let (p_set, w_set) = self.find_pivots(s, b);
+        let mut block_ds = BlockDs::new(2usize.pow(((l - 1) * t) as u32), b);
+        let mut now_boundary = PathDist::MAX;
+        for &x in p_set.iter() {
+            block_ds.insert(x, self.now_dis[x]);
+            now_boundary = now_boundary.min(self.now_dis[x]);
+        }
+        let mut u_set = HashSet::new();
+        while u_set.len() < k_size_limit && !block_ds.is_empty() {
+            let PullResult {
+                boundary: upper_boundary,
+                keys,
+            } = block_ds.pull();
+            // TODO BlockDs 也直接返回 HashSet 得了
+            let keys = keys.into_iter().collect::<HashSet<_>>();
+            let BMSSPResult {
+                new_boundary,
+                complete,
+            } = self.bmssp(l - 1, &keys, upper_boundary);
+            u_set.extend(complete.iter().copied());
+            let mut k_set = Vec::new();
+            for &u in complete.iter() {
+                let u_dis = self.now_dis[u];
+                for &(v, w) in self.graph.adj()[u].iter() {
+                    let relaxed_dis = PathDist::new(u_dis.dis + w as u64, u_dis.hop + 1, v, u);
+                    if relaxed_dis <= self.now_dis[v] {
+                        self.now_dis[v] = relaxed_dis;
+                        if relaxed_dis >= upper_boundary && relaxed_dis < b {
+                            block_ds.insert(v, relaxed_dis);
+                        } else if relaxed_dis >= new_boundary && relaxed_dis < upper_boundary {
+                            k_set.push((v, relaxed_dis));
+                        }
+                    }
+                }
+            }
+            for x in keys {
+                let x_dis = self.now_dis[x];
+                if x_dis >= new_boundary && x_dis < upper_boundary {
+                    k_set.push((x, x_dis));
+                }
+            }
+            block_ds.batch_prepend(&k_set);
+            now_boundary = new_boundary;
+        }
+
+        now_boundary = now_boundary.min(b);
+
+        for x in w_set {
+            if self.now_dis[x] < now_boundary {
+                u_set.insert(x);
+            }
+        }
+
+        BMSSPResult {
+            new_boundary: now_boundary,
+            complete: u_set,
+        }
     }
 
     /// BMSSP 的 finding pivots 操作
@@ -418,5 +529,21 @@ mod tests {
         let s = HashSet::from([0usize]);
         let _ = m.find_pivots(&s, PathDist::scalar_upper(100));
         assert_eq!(m.now_dis[1].dis, 10);
+    }
+
+    #[test]
+    fn test_bmssp_simple() {
+        let g = vec![vec![(1, 4), (2, 1)], vec![], vec![(1, 2)]];
+        let cg = ConstGraph::from_general_graph(&g);
+        let source = cg.orig_to_const(0).unwrap();
+        let bmssp = BMSSP::new(cg.clone(), source);
+        let dist = bmssp.solve();
+        let mut actual = vec![u64::MAX; g.len()];
+        for v in 0..g.len() {
+            let rv = cg.orig_to_const(v).unwrap();
+            actual[v] = dist[rv];
+        }
+        actual[0] = 0;
+        assert_eq!(actual, vec![0, 3, 1]);
     }
 }
