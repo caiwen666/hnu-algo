@@ -3,7 +3,7 @@ pub mod const_graph;
 pub mod path_dist;
 
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 use crate::algorithms::bmssp::const_graph::ConstGraph;
 use crate::algorithms::bmssp::path_dist::PathDist;
@@ -68,6 +68,116 @@ impl BMSSP {
             t,
             now_dis,
         }
+    }
+
+    pub fn k(&self) -> usize {
+        self.k
+    }
+
+    /// BMSSP 的 finding pivots 操作
+    ///
+    /// # Parameters
+    ///
+    /// - `s` - 前沿集合。
+    /// - `b` - 上界。
+    ///
+    /// # Returns
+    ///
+    /// 返回一个二元组，第一个元素对应于论文中的 P 集合，第二个元素对应论文中的 W 集合。
+    ///
+    /// # Preconditions
+    ///
+    /// 所有最短路小于 b 的点，最短路必须经过 s 中某个已经 complete 的点。
+    ///
+    /// # Panics
+    ///
+    /// - 如果 s 为空，则 panic。
+    fn find_pivots(&mut self, s: &HashSet<usize>, b: PathDist) -> (HashSet<usize>, HashSet<usize>) {
+        let k = self.k;
+        assert!(!s.is_empty(), "s must not be empty");
+
+        let mut w_set: HashSet<usize> = s.iter().copied().collect();
+
+        // 使用 01 滚动数组来维护 wi
+        // last_wi_index 即为 1 - now_wi_index
+        let mut now_wi_index = 1;
+        let mut wi = [w_set.clone(), HashSet::new()];
+
+        for _ in 0..k {
+            let (slot0, slot1) = wi.split_at_mut(1);
+            let (wi_last, wi_now) = if now_wi_index == 0 {
+                (&mut slot1[0], &mut slot0[0])
+            } else {
+                (&mut slot0[0], &mut slot1[0])
+            };
+            wi_now.clear();
+
+            for &u in wi_last.iter() {
+                let u_dis = self.now_dis[u];
+                for &(v, w) in self.graph.adj()[u].iter() {
+                    let relaxed_dis = PathDist::new(u_dis.dis + w as u64, u_dis.hop + 1, v, u);
+                    if relaxed_dis <= self.now_dis[v] {
+                        self.now_dis[v] = relaxed_dis;
+                        if relaxed_dis < b {
+                            wi_now.insert(v);
+                        }
+                    }
+                }
+            }
+
+            w_set.extend(wi_now.iter().copied());
+
+            if w_set.len() > k * s.len() {
+                return (s.clone(), w_set);
+            }
+
+            now_wi_index = 1 - now_wi_index;
+        }
+
+        // 接下来构造最短路森林。
+        // TODO 内存开销可能有点大？
+        let mut parent: HashMap<usize, usize> = HashMap::new();
+        let mut children: HashMap<usize, Vec<usize>> = HashMap::new();
+        for &u in w_set.iter() {
+            let u_dis = self.now_dis[u];
+            for &(v, w) in self.graph.adj()[u].iter() {
+                if !w_set.contains(&v) {
+                    continue;
+                }
+                let relaxed_dis = PathDist::new(u_dis.dis + w as u64, u_dis.hop + 1, v, u);
+                if relaxed_dis == self.now_dis[v] {
+                    parent.insert(v, u);
+                    children.entry(u).or_default().push(v);
+                }
+            }
+        }
+
+        // 非递归遍历，希望常数小点
+        let get_subtree_size = |root: usize| -> usize {
+            let mut queue: VecDeque<usize> = VecDeque::new();
+            queue.push_back(root);
+            let mut size = 1usize;
+            while let Some(u) = queue.pop_front() {
+                for &v in children.get(&u).unwrap_or(&Vec::new()).iter() {
+                    queue.push_back(v);
+                    size += 1;
+                }
+            }
+            size
+        };
+
+        let mut p = HashSet::new();
+        for &u in children.keys() {
+            if parent.contains_key(&u) {
+                continue;
+            }
+            let subtree_size = get_subtree_size(u);
+            if subtree_size >= k {
+                p.insert(u);
+            }
+        }
+
+        (p, w_set)
     }
 
     /// BMSSP 的 base case
@@ -287,5 +397,26 @@ mod tests {
         let r = m.base_case(s, b);
         assert_eq!(r.new_boundary, b);
         assert_eq!(r.complete, HashSet::from([s]));
+    }
+
+    /// `|W| > k|S|` 时（论文第 15 行）应返回 `P = S`。`n = 4` 时 `k = 1`，一星三叶一轮可达 `|W| = 4`。
+    #[test]
+    fn find_pivots_large_visit_set_returns_whole_frontier_as_pivots() {
+        let cg = ConstGraph::new(vec![vec![(1, 1), (2, 1), (3, 1)], vec![], vec![], vec![]]);
+        let mut m = BMSSP::new(cg, 0);
+        let s = HashSet::from([0usize]);
+        let (p, w) = m.find_pivots(&s, PathDist::scalar_upper(100));
+        assert_eq!(p, s);
+        assert!(w.len() >= 4);
+    }
+
+    /// 一轮全局扫描内应能递推：0 -10-> 1，0 -1-> 2 -1-> 1，单轮后 `d[1]=10`（不是 2）。
+    #[test]
+    fn find_pivots_one_bf_round_chains_relaxations() {
+        let cg = ConstGraph::new(vec![vec![(1, 10), (2, 1)], vec![], vec![(1, 1)]]);
+        let mut m = BMSSP::new(cg, 0);
+        let s = HashSet::from([0usize]);
+        let _ = m.find_pivots(&s, PathDist::scalar_upper(100));
+        assert_eq!(m.now_dis[1].dis, 10);
     }
 }
