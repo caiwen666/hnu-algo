@@ -3,7 +3,7 @@ pub mod const_graph;
 pub mod path_dist;
 
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::collections::{BinaryHeap, HashSet, VecDeque};
 
 use crate::algorithms::bmssp::block_ds::{BlockDs, PullResult};
 use crate::algorithms::bmssp::const_graph::ConstGraph;
@@ -36,6 +36,13 @@ pub struct BMSSP {
     /// 当前维护的距离估计 now_dis[·]，永远满足 now_dis[v] >= d(v)，其中 d(v) 为最短路
     /// 不可到达用 u64::MAX 表示。
     now_dis: Vec<PathDist>,
+
+    /// 内存池，用于复用内存
+    pool1: Vec<PathDist>,
+    pool2: Vec<usize>,
+    pool3: Vec<Vec<usize>>,
+    /// `bmssp` 里每轮 `batch_prepend` 的 (顶点, 距离) 缓冲，避免每层循环反复分配
+    k_buf: Vec<(usize, PathDist)>,
 }
 
 impl BMSSP {
@@ -70,6 +77,10 @@ impl BMSSP {
             t,
             top_l,
             now_dis,
+            pool1: vec![PathDist::MAX; n],
+            pool2: vec![usize::MAX; n],
+            pool3: vec![Vec::new(); n],
+            k_buf: Vec::new(),
         }
     }
 
@@ -146,7 +157,9 @@ impl BMSSP {
                 complete,
             } = self.bmssp(l - 1, &keys, upper_boundary);
             u_set.extend(complete.iter().copied());
-            let mut k_set = Vec::new();
+            self.k_buf.clear();
+            self.k_buf
+                .reserve(complete.len().saturating_mul(2).saturating_add(keys.len()));
             for &u in complete.iter() {
                 let u_dis = self.now_dis[u];
                 for &(v, w) in self.graph.adj()[u].iter() {
@@ -157,7 +170,7 @@ impl BMSSP {
                         if relaxed_dis >= upper_boundary && relaxed_dis < b {
                             block_ds.insert(v, relaxed_dis);
                         } else if relaxed_dis >= new_boundary && relaxed_dis < upper_boundary {
-                            k_set.push((v, relaxed_dis));
+                            self.k_buf.push((v, relaxed_dis));
                         }
                     }
                 }
@@ -165,10 +178,10 @@ impl BMSSP {
             for x in keys {
                 let x_dis = self.now_dis[x];
                 if x_dis >= new_boundary && x_dis < upper_boundary {
-                    k_set.push((x, x_dis));
+                    self.k_buf.push((x, x_dis));
                 }
             }
-            block_ds.batch_prepend(&k_set);
+            block_ds.batch_prepend(&self.k_buf, &mut self.pool1);
             now_boundary = new_boundary;
         }
 
@@ -248,9 +261,8 @@ impl BMSSP {
         }
 
         // 接下来构造最短路森林。
-        // TODO 内存开销可能有点大？
-        let mut parent: HashMap<usize, usize> = HashMap::new();
-        let mut children: HashMap<usize, Vec<usize>> = HashMap::new();
+        // self.pool2[v] = u 表示 v 的父节点是 u
+        // self.pool3[u] = [v1, v2, ...] 表示 u 的子节点是 v1, v2, ...
         for &u in w_set.iter() {
             let u_dis = self.now_dis[u];
             for &(v, w) in self.graph.adj()[u].iter() {
@@ -260,39 +272,34 @@ impl BMSSP {
                 let relaxed_dis =
                     PathDist::new(u_dis.dis() + w as u64, u_dis.hop() + 1, v as u32, u as u32);
                 if relaxed_dis == self.now_dis[v] {
-                    parent.insert(v, u);
-                    children.entry(u).or_default().push(v);
+                    self.pool2[v] = u;
+                    self.pool3[u].push(v);
                 }
             }
         }
 
-        // 非递归遍历，希望常数小点
-        let get_subtree_size = |root: usize| -> usize {
-            let mut queue: VecDeque<usize> = VecDeque::new();
-            queue.push_back(root);
-            let mut size = 1usize;
-            while let Some(u) = queue.pop_front() {
-                if let Some(ch) = children.get(&u) {
-                    for &v in ch {
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        let mut p = HashSet::new();
+        for &u in w_set.iter() {
+            if self.pool2[u] == usize::MAX {
+                let mut subtree_size = 1;
+                // 非递归遍历，希望常数小点
+                queue.push_back(u);
+                while let Some(x) = queue.pop_front() {
+                    for &v in self.pool3[x].iter() {
                         queue.push_back(v);
-                        size += 1;
+                        subtree_size += 1;
                     }
                 }
+                if subtree_size >= k {
+                    p.insert(u);
+                }
             }
-            size
-        };
-
-        let mut p = HashSet::new();
-        for &u in children.keys() {
-            if parent.contains_key(&u) {
-                continue;
+            for &(v, _) in self.graph.adj()[u].iter() {
+                self.pool2[v] = usize::MAX;
             }
-            let subtree_size = get_subtree_size(u);
-            if subtree_size >= k {
-                p.insert(u);
-            }
+            self.pool3[u].clear();
         }
-
         (p, w_set)
     }
 

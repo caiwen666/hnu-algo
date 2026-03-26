@@ -75,6 +75,9 @@ pub struct BlockDs {
     d1_head: Option<usize>,
     d1_tail: Option<usize>,
     d1_upper_index: BTreeSet<(PathDist, usize)>,
+    /// `batch_prepend` 复用，避免每层 `pull` 循环里反复分配
+    prep_pairs: Vec<(usize, PathDist)>,
+    prep_block_ids: Vec<usize>,
 }
 
 impl BlockDs {
@@ -97,6 +100,8 @@ impl BlockDs {
             d1_head: None,
             d1_tail: None,
             d1_upper_index: BTreeSet::new(),
+            prep_pairs: Vec::new(),
+            prep_block_ids: Vec::new(),
         };
         let first = ds.new_block(BlockSeq::D1, upper_bound_b);
         ds.d1_head = Some(first);
@@ -171,14 +176,14 @@ impl BlockDs {
     /// # Panics
     ///
     /// - 如果 `records` 中存在 `PathDist.end != key`，则 panic
-    pub fn batch_prepend(&mut self, records: &[(usize, PathDist)]) {
+    pub fn batch_prepend(&mut self, records: &[(usize, PathDist)], pool: &mut [PathDist]) {
         if records.is_empty() {
             return;
         }
 
-        // TODO：复用内存池来砍掉这块的内存分配
         // 对 records 去重，并把已经存在于数据结构中的点删掉
-        let mut insert_records: HashMap<usize, PathDist> = HashMap::new();
+        self.prep_pairs.clear();
+        self.prep_pairs.reserve(records.len());
         for (key, value) in records.iter().copied() {
             assert_eq!(
                 value.end(),
@@ -188,31 +193,35 @@ impl BlockDs {
             if let Some(&old_node_id) = self.key_to_node.get(&key) {
                 self.delete_node(old_node_id);
             }
-            insert_records
-                .entry(key)
-                .and_modify(|v| *v = (*v).min(value))
-                .or_insert(value);
+            if pool[key] != PathDist::MAX {
+                pool[key] = pool[key].min(value);
+            } else {
+                // 先把第一个值插进去，主要是为了知道有这个值，后面再扫一遍拿最新值
+                self.prep_pairs.push((key, value));
+                pool[key] = value;
+            }
         }
 
-        let mut insert_records = insert_records.into_iter().collect::<Vec<_>>();
+        self.prep_pairs.iter_mut().for_each(|(key, value)| {
+            *value = pool[*key];
+            // 需要保证 pool 调用前后，里面的值都是 PathDist::MAX
+            pool[*key] = PathDist::MAX;
+        });
 
         // 论文中使用 BFPRT 来进行递归划分
         // 考虑到 BFPRT 的常数可能较大，这里直接使用排序
-        insert_records.sort_unstable_by_key(|&(k, v)| (v, k));
+        self.prep_pairs.sort_unstable_by_key(|&(k, v)| (v, k));
 
+        self.prep_block_ids.clear();
         let mut cursor = 0usize;
-        let mut block_ids = Vec::<usize>::new();
-        while cursor < insert_records.len() {
-            let end = min(cursor + self.m, insert_records.len());
-            // [cursor, end) 这个区间为一块
-            let slice = &insert_records[cursor..end];
-            let upper = slice
-                .last()
-                .map(|&(_, v)| v)
-                .expect("slice cannot be empty");
+        while cursor < self.prep_pairs.len() {
+            let end = min(cursor + self.m, self.prep_pairs.len());
+            // [cursor, end) 这个区间为一块（按索引迭代，避免与 new_node 等对 &mut self 的调用冲突）
+            let upper = self.prep_pairs[end - 1].1;
             let block_id = self.new_block(BlockSeq::D0, upper);
-            block_ids.push(block_id);
-            for &(k, v) in slice {
+            self.prep_block_ids.push(block_id);
+            for idx in cursor..end {
+                let (k, v) = self.prep_pairs[idx];
                 let node_id = self.new_node(k, v, block_id);
                 self.key_to_node.insert(k, node_id);
                 self.push_node_to_block_tail(block_id, node_id);
@@ -220,7 +229,7 @@ impl BlockDs {
             cursor = end;
         }
 
-        for block_id in block_ids.into_iter().rev() {
+        while let Some(block_id) = self.prep_block_ids.pop() {
             self.prepend_d0_block(block_id);
         }
     }
@@ -775,7 +784,8 @@ mod tests {
             (1, PathDist::from_dis(4, 1)),
             (10, PathDist::from_dis(90, 10)),
         ];
-        ds.batch_prepend(&records);
+        let mut pool = vec![PathDist::MAX; 12];
+        ds.batch_prepend(&records, &mut pool);
 
         let PullResult { mut keys, boundary } = ds.pull();
         keys.sort_unstable();
@@ -913,7 +923,8 @@ mod tests {
             (2, PathDist::from_dis(35, 2)),
             (4, PathDist::from_dis(30, 4)),
         ];
-        ds.batch_prepend(&records);
+        let mut pool = vec![PathDist::MAX; 5];
+        ds.batch_prepend(&records, &mut pool);
 
         // 先确认 batch_prepend 语义本身是否正确（value 取 records 内最小值，key 对应值覆盖）。
         // 如果这一步就不符合预期，则是 batch_prepend 插入逻辑有问题；
@@ -950,17 +961,25 @@ mod tests {
         ds.insert(2, PathDist::from_dis(200, 2));
 
         // batch1：覆盖 key1，并生成 D0
-        ds.batch_prepend(&[
-            (3, PathDist::from_dis(50, 3)),
-            (1, PathDist::from_dis(80, 1)),
-        ]);
+        let mut pool = vec![PathDist::MAX; 4];
+        ds.batch_prepend(
+            &[
+                (3, PathDist::from_dis(50, 3)),
+                (1, PathDist::from_dis(80, 1)),
+            ],
+            &mut pool,
+        );
         // 此时全局最小值应是 50
 
         // batch2：值必须严格小于当前最小值 50，同时覆盖 key2（在 D1）与 key3（在 D0）
-        ds.batch_prepend(&[
-            (2, PathDist::from_dis(40, 2)),
-            (3, PathDist::from_dis(45, 3)),
-        ]);
+        let mut pool = vec![PathDist::MAX; 4];
+        ds.batch_prepend(
+            &[
+                (2, PathDist::from_dis(40, 2)),
+                (3, PathDist::from_dis(45, 3)),
+            ],
+            &mut pool,
+        );
 
         // 更新后：key2=40, key3=45, key1=80
         let PullResult { mut keys, boundary } = ds.pull();
@@ -981,10 +1000,14 @@ mod tests {
         ds.insert(3, PathDist::from_dis(50, 3));
 
         // batch_prepend：插入 2 个节点到 D0（严格小于当前最小值 30）
-        ds.batch_prepend(&[
-            (4, PathDist::from_dis(10, 4)),
-            (5, PathDist::from_dis(20, 5)),
-        ]);
+        let mut pool = vec![PathDist::MAX; 6];
+        ds.batch_prepend(
+            &[
+                (4, PathDist::from_dis(10, 4)),
+                (5, PathDist::from_dis(20, 5)),
+            ],
+            &mut pool,
+        );
 
         // 全局最小三者是 10(key4), 20(key5), 30(key1)
         let PullResult { mut keys, boundary } = ds.pull();
@@ -1008,7 +1031,8 @@ mod tests {
 
         // D0：插入一个严格更小的 value，保证 pull 会同时看到 D0 与 D1，
         // 并触发对候选的显式排序（从而确定 tie 的选择）。
-        ds.batch_prepend(&[(3, PathDist::from_dis(1, 3))]);
+        let mut pool = vec![PathDist::MAX; 6];
+        ds.batch_prepend(&[(3, PathDist::from_dis(1, 3))], &mut pool);
 
         let PullResult { mut keys, boundary } = ds.pull();
         keys.sort_unstable();
@@ -1077,11 +1101,14 @@ mod tests {
         ds.insert(4, PathDist::new(40, 0, 4, 0));
 
         // 此时 1 2 在一个块，3 4 在一个块
-
-        ds.batch_prepend(&[
-            (3, PathDist::new(3, 0, 3, 0)),
-            (4, PathDist::new(4, 0, 4, 0)),
-        ]);
+        let mut pool = vec![PathDist::MAX; 5];
+        ds.batch_prepend(
+            &[
+                (3, PathDist::new(3, 0, 3, 0)),
+                (4, PathDist::new(4, 0, 4, 0)),
+            ],
+            &mut pool,
+        );
 
         // 此时原来的 3 4 被删除
 
@@ -1137,7 +1164,8 @@ mod tests {
     fn batch_prepend_empty_records_is_noop() {
         let mut ds = BlockDs::new(2, PathDist::scalar_upper(1000));
         ds.insert(1, PathDist::from_dis(10, 1));
-        ds.batch_prepend(&[]);
+        let mut pool = vec![PathDist::MAX; 2];
+        ds.batch_prepend(&[], &mut pool);
         assert_eq!(ds.len(), 1);
 
         let PullResult { keys, boundary } = ds.pull();
@@ -1198,7 +1226,9 @@ mod tests {
                 }
 
                 history.push(format!("batch_prepend({:?})", records));
-                ds.batch_prepend(&records);
+                let keys_range = records.iter().map(|&(key, _)| key).max().unwrap();
+                let mut pool = vec![PathDist::MAX; keys_range + 1];
+                ds.batch_prepend(&records, &mut pool);
                 model.batch_prepend(&records);
                 ds.sanity_check_links();
                 ds.sanity_check_keys();
