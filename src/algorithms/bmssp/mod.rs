@@ -61,7 +61,7 @@ impl BMSSP {
         let top_l = ((logn / t as f64).ceil() as usize).max(1);
 
         let mut now_dis = vec![PathDist::MAX; n];
-        now_dis[source] = PathDist::new(0, 0, source, 0);
+        now_dis[source] = PathDist::new(0, 0, source as u32, 0);
 
         Self {
             graph,
@@ -90,7 +90,7 @@ impl BMSSP {
     ///
     /// 返回一个数组 v，v(i) 表示 source 到 i 的最短路距离，不可到达用 u64::MAX 表示。
     pub fn fetch_result(&self) -> Vec<u64> {
-        self.now_dis.iter().map(|&d| d.dis).collect()
+        self.now_dis.iter().map(|&d| d.dis()).collect()
     }
 
     /// BMSSP 算法主体
@@ -150,7 +150,8 @@ impl BMSSP {
             for &u in complete.iter() {
                 let u_dis = self.now_dis[u];
                 for &(v, w) in self.graph.adj()[u].iter() {
-                    let relaxed_dis = PathDist::new(u_dis.dis + w as u64, u_dis.hop + 1, v, u);
+                    let relaxed_dis =
+                        PathDist::new(u_dis.dis() + w as u64, u_dis.hop() + 1, v as u32, u as u32);
                     if relaxed_dis <= self.now_dis[v] {
                         self.now_dis[v] = relaxed_dis;
                         if relaxed_dis >= upper_boundary && relaxed_dis < b {
@@ -226,7 +227,8 @@ impl BMSSP {
             for &u in wi_last.iter() {
                 let u_dis = self.now_dis[u];
                 for &(v, w) in self.graph.adj()[u].iter() {
-                    let relaxed_dis = PathDist::new(u_dis.dis + w as u64, u_dis.hop + 1, v, u);
+                    let relaxed_dis =
+                        PathDist::new(u_dis.dis() + w as u64, u_dis.hop() + 1, v as u32, u as u32);
                     if relaxed_dis <= self.now_dis[v] {
                         self.now_dis[v] = relaxed_dis;
                         if relaxed_dis < b {
@@ -255,7 +257,8 @@ impl BMSSP {
                 if !w_set.contains(&v) {
                     continue;
                 }
-                let relaxed_dis = PathDist::new(u_dis.dis + w as u64, u_dis.hop + 1, v, u);
+                let relaxed_dis =
+                    PathDist::new(u_dis.dis() + w as u64, u_dis.hop() + 1, v as u32, u as u32);
                 if relaxed_dis == self.now_dis[v] {
                     parent.insert(v, u);
                     children.entry(u).or_default().push(v);
@@ -336,7 +339,8 @@ impl BMSSP {
             u0.insert(u);
 
             for &(v, w) in self.graph.adj()[u].iter() {
-                let relaxed_dis = PathDist::new(u_dis.dis + w as u64, u_dis.hop + 1, v, u);
+                let relaxed_dis =
+                    PathDist::new(u_dis.dis() + w as u64, u_dis.hop() + 1, v as u32, u as u32);
                 if relaxed_dis < b && relaxed_dis <= self.now_dis[v] {
                     self.now_dis[v] = relaxed_dis;
                     heap.push(Reverse((relaxed_dis, v)));
@@ -419,8 +423,8 @@ mod tests {
         let r = m.base_case(s, b);
 
         let rep1 = cg.orig_to_const(1).unwrap();
-        assert_eq!(m.now_dis[s].dis, 0);
-        assert_eq!(m.now_dis[rep1].dis, 1);
+        assert_eq!(m.now_dis[s].dis(), 0);
+        assert_eq!(m.now_dis[rep1].dis(), 1);
         // 注意：`from_general_graph` 会把每个原点替换成 0 权环上的若干替身点。
         // 对于点 1（既有入邻居 0 又有出邻居 2），需要先经过环上的中间点 x_{1,2} 才能走原边到 2。
         // base case 只 ExtractMin 至多 k+1 次（这里 k=1），不会继续从未出堆的环点扩展，因此 2 的代表点不保证被松弛。
@@ -429,7 +433,7 @@ mod tests {
 
         // 进入截断分支时 `|U0| = k+1 = 2`，`new_boundary` 为 U0 上 `PathDist` 的 max；
         // 由于 const 图点编号不同，我们只检查其标量距离确为 1。
-        assert_eq!(r.new_boundary.dis, 1);
+        assert_eq!(r.new_boundary.dis(), 1);
 
         // 按算法，complete 为 `{v in U0 : now_dis[v] < new_boundary}`，至少包含源点；
         // 在该例中 `rep1` 处于边界，不能被 complete。
@@ -446,9 +450,9 @@ mod tests {
         let rep1 = cg.orig_to_const(1).unwrap();
         let rep2 = cg.orig_to_const(2).unwrap();
 
-        assert_eq!(m.now_dis[rep1].dis, 2);
+        assert_eq!(m.now_dis[rep1].dis(), 2);
         assert_eq!(m.now_dis[rep2], PathDist::MAX);
-        assert_eq!(r.new_boundary.dis, 2);
+        assert_eq!(r.new_boundary.dis(), 2);
         assert!(r.complete.contains(&s));
         assert!(!r.complete.contains(&rep1), "边界点不应 complete");
         assert!(!r.complete.contains(&rep2));
@@ -472,11 +476,11 @@ mod tests {
         let b = big_b();
         let r = m.base_case(s, b);
         let rep1 = cg.orig_to_const(1).unwrap();
-        assert_eq!(m.now_dis[rep1].dis, 0);
+        assert_eq!(m.now_dis[rep1].dis(), 0);
         // 同 `linear` 测试：点 1 既有入又有出，需先出堆环点才会继续到 2；这里不强行要求 2 被松弛。
         let rep2 = cg.orig_to_const(2).unwrap();
         assert_eq!(m.now_dis[rep2], PathDist::MAX);
-        assert_eq!(r.new_boundary.dis, 0);
+        assert_eq!(r.new_boundary.dis(), 0);
         assert!(r.complete.contains(&s));
     }
 
@@ -498,7 +502,7 @@ mod tests {
         let b = big_b();
         let _ = m.base_case(s, b);
         let rep1 = cg.orig_to_const(1).unwrap();
-        assert_eq!(m.now_dis[rep1].dis, 100);
+        assert_eq!(m.now_dis[rep1].dis(), 100);
     }
 
     /// 前置条件 `b > now_dis[s]` 是 **PathDist 全序**（路径偏序的具体落地）。
@@ -530,7 +534,7 @@ mod tests {
         let mut m = BMSSP::new(cg, 0);
         let s = [0usize];
         let _ = m.find_pivots(&s, PathDist::scalar_upper(100));
-        assert_eq!(m.now_dis[1].dis, 10);
+        assert_eq!(m.now_dis[1].dis(), 10);
     }
 
     #[test]

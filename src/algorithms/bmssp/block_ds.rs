@@ -128,7 +128,11 @@ impl BlockDs {
     ///
     /// 如果 value 大于数据结构上界，或 `value.end != key`，则 panic
     pub fn insert(&mut self, key: usize, value: PathDist) {
-        assert_eq!(value.end, key, "PathDist.end must match insert key");
+        assert_eq!(
+            value.end(),
+            key as u32,
+            "PathDist.end must match insert key"
+        );
         if value > self.upper_bound_b {
             panic!("value is greater than upper bound");
         }
@@ -176,7 +180,11 @@ impl BlockDs {
         // 对 records 去重，并把已经存在于数据结构中的点删掉
         let mut insert_records: HashMap<usize, PathDist> = HashMap::new();
         for (key, value) in records.iter().copied() {
-            assert_eq!(value.end, key, "PathDist.end must match record key");
+            assert_eq!(
+                value.end(),
+                key as u32,
+                "PathDist.end must match record key"
+            );
             if let Some(&old_node_id) = self.key_to_node.get(&key) {
                 self.delete_node(old_node_id);
             }
@@ -1173,7 +1181,7 @@ mod tests {
                 ds.sanity_check_keys();
             } else if op < 82 {
                 // batch_prepend
-                let cur_min_dis = model.min_value().map(|p| p.dis).unwrap_or(upper + 1);
+                let cur_min_dis = model.min_value().map(|p| p.dis()).unwrap_or(upper + 1);
                 if cur_min_dis <= 1 {
                     history.push("skip(batch_prepend)".to_string());
                     continue;
