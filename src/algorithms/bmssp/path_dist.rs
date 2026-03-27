@@ -5,71 +5,86 @@ use std::fmt;
 ///
 /// 比较顺序：`dis` → `hop` → `end` → `pred`，全部相同则相等。
 ///
-/// 存储：`dis`(64) · `hop`(32) · `end`(32) 压入 [`PathDist::packed`]，`pred` 为 [`PathDist::pred`]。
-/// 这样 [`Ord`] 可先比较一个 `u128` 再比较 `pred`。
+/// 编码为两个 u64（共 16 字节）：
+/// - `hi`: dis（64 位，主比较键）
+/// - `lo`: (hop:22 | end:21 | pred:21)
+///
+/// 限制：hop < 4194304, end/pred < 2097152
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub struct PathDist {
-    /// 高 64：`dis`；次 32：`hop`；低 32：`end`。
-    pub packed: u128,
-    pub pred: u32,
+    pub hi: u64,
+    pub lo: u64,
 }
+
+const END_BITS: u32 = 21;
+const PRED_BITS: u32 = 21;
+const END_MASK: u64 = (1u64 << END_BITS) - 1;
+const PRED_MASK: u64 = (1u64 << PRED_BITS) - 1;
 
 impl PathDist {
     pub const MAX: Self = Self {
-        packed: u128::MAX,
-        pred: u32::MAX,
+        hi: u64::MAX,
+        lo: u64::MAX,
     };
 
-    #[inline]
+    #[inline(always)]
     pub const fn new(dis: u64, hop: u32, end: u32, pred: u32) -> Self {
         Self {
-            packed: ((dis as u128) << 64) | ((hop as u128) << 32) | (end as u128),
-            pred,
+            hi: dis,
+            lo: ((hop as u64) << (END_BITS + PRED_BITS))
+                | ((end as u64) << PRED_BITS)
+                | (pred as u64),
+        }
+    }
+
+    #[inline(always)]
+    pub const fn dis(self) -> u64 {
+        self.hi
+    }
+
+    #[inline(always)]
+    pub const fn hop(self) -> u32 {
+        (self.lo >> (END_BITS + PRED_BITS)) as u32
+    }
+
+    #[inline(always)]
+    pub const fn end(self) -> u32 {
+        ((self.lo >> PRED_BITS) & END_MASK) as u32
+    }
+
+    #[inline(always)]
+    pub const fn pred(self) -> u32 {
+        (self.lo & PRED_MASK) as u32
+    }
+
+    #[inline]
+    pub fn scalar_upper(dis: u64) -> Self {
+        Self {
+            hi: dis,
+            lo: u64::MAX,
         }
     }
 
     #[inline]
-    pub const fn dis(self) -> u64 {
-        (self.packed >> 64) as u64
-    }
-
-    #[inline]
-    pub const fn hop(self) -> u32 {
-        ((self.packed >> 32) & 0xFFFF_FFFF) as u32
-    }
-
-    #[inline]
-    pub const fn end(self) -> u32 {
-        (self.packed & 0xFFFF_FFFF) as u32
-    }
-
-    /// 由「标量」上界 `B` 得到四元组上界：在 `dis == B` 时对 `hop/end/pred` 取最大，
-    /// 使得所有满足 `dis <= B` 的路径均 < 该上界
-    #[inline]
-    pub fn scalar_upper(dis: u64) -> Self {
-        Self::new(dis, u32::MAX, u32::MAX, u32::MAX)
-    }
-
-    /// `hop = 0`, `pred = 0`。与旧实现里按 `(dis, key)` 排序一致（`key` 即 `end`）。
-    #[inline]
     pub fn from_dis(dis: u64, end: usize) -> Self {
-        debug_assert!(end <= u32::MAX as usize);
+        debug_assert!(end <= 0xFF_FFFF);
         Self::new(dis, 0, end as u32, 0)
     }
 }
 
 impl Ord for PathDist {
-    #[inline]
+    #[inline(always)]
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.packed.cmp(&other.packed) {
-            Ordering::Equal => self.pred.cmp(&other.pred),
+        match self.hi.cmp(&other.hi) {
+            Ordering::Equal => self.lo.cmp(&other.lo),
             o => o,
         }
     }
 }
 
 impl PartialOrd for PathDist {
-    #[inline]
+    #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -81,7 +96,7 @@ impl fmt::Debug for PathDist {
             .field("dis", &self.dis())
             .field("hop", &self.hop())
             .field("end", &self.end())
-            .field("pred", &self.pred)
+            .field("pred", &self.pred())
             .finish()
     }
 }

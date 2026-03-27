@@ -20,7 +20,8 @@ fn test_const_graph() {
         let cg = ConstGraph::from_general_graph(&graph);
         let source2 = cg.orig_to_const(source).expect("source in range");
 
-        let dist2 = dijkstra(cg.adj(), source2);
+        let adj_list = cg.to_adj_list();
+        let dist2 = dijkstra(&adj_list, source2);
         let mut actual = vec![u64::MAX; graph.len()];
         for v in 0..graph.len() {
             let rv = cg.orig_to_const(v).expect("v in range");
