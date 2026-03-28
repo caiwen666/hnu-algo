@@ -19,6 +19,10 @@ harness = false
 name = "bmssp"
 harness = false
 
+[[bench]]
+name = "ssp"
+harness = false
+
 [dependencies]
 rustc-hash = "2.1"
 jieba-rs = "0.8.1"
