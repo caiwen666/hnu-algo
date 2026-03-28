@@ -239,11 +239,10 @@ impl BMSSP {
         now_boundary = now_boundary.min(b);
 
         for x in w_set {
-            if self.now_dis[x as usize] < now_boundary
-                && self.epoch[x as usize] != ep {
-                    self.epoch[x as usize] = ep;
-                    u_set.push(x);
-                }
+            if self.now_dis[x as usize] < now_boundary && self.epoch[x as usize] != ep {
+                self.epoch[x as usize] = ep;
+                u_set.push(x);
+            }
         }
 
         BMSSPResult {

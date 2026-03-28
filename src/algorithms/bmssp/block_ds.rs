@@ -146,11 +146,7 @@ impl<'a> BlockDs<'a> {
     ///
     /// 如果 value 大于数据结构上界，或 `value.end != key`，则 panic
     pub fn insert(&mut self, key: u32, value: PathDist) {
-        assert_eq!(
-            value.end(),
-            key,
-            "PathDist.end must match insert key"
-        );
+        assert_eq!(value.end(), key, "PathDist.end must match insert key");
         if value > self.upper_bound_b {
             panic!("value is greater than upper bound");
         }
@@ -201,11 +197,7 @@ impl<'a> BlockDs<'a> {
         self.prep_pairs.clear();
         self.prep_pairs.reserve(records.len());
         for &(key, value) in records.iter() {
-            assert_eq!(
-                value.end(),
-                key,
-                "PathDist.end must match record key"
-            );
+            assert_eq!(value.end(), key, "PathDist.end must match record key");
             let old_id = self.key_to_node[key as usize];
             if old_id != NONE {
                 self.delete_node(old_id);
