@@ -9,7 +9,7 @@
 /// |3|随机生成，点数为 5e5，边数为 1e6|
 /// |4|hack spfa（假的），点数为 5e5，边数为 1.5 * 5e5|
 ///
-/// 数据下载链接：TODO
+/// 数据下载链接：<https://pic.caiwen.work/dataset/ssp.zip>
 ///
 /// # Arguments
 ///

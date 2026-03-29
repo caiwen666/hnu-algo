@@ -9,7 +9,7 @@ use hnu_algo::{
 const EPSILON: f64 = 1e-10;
 
 /// 加载 Networkx 在三体人物关系数据集上进行 PageRank 得到的结果
-/// TODO 数据地址
+/// 数据地址：<https://pic.caiwen.work/dataset/pagerank_networkx_output.zip>
 /// 计算参数：alpha=0.85, max_iter=100, tol=1e-6
 fn load_three_body_networkx_output() -> HashMap<String, f64> {
     let data = std::fs::read_to_string("dataset/three_body_networkx.json").unwrap();
@@ -77,7 +77,7 @@ fn test_three_body_sparse() {
 }
 
 /// 加载 Networkx 在 Google 数据集上进行 PageRank 得到的结果
-/// TODO 数据地址
+/// 数据地址：<https://pic.caiwen.work/dataset/pagerank_networkx_output.zip>
 /// 计算参数：alpha=0.85, max_iter=100, tol=1e-6
 fn load_google_networkx_output() -> HashMap<usize, f64> {
     let data = std::fs::read_to_string("dataset/web-Google_networkx.json").unwrap();
@@ -93,7 +93,7 @@ fn test_google() {
 }
 
 /// 加载 Networkx 在 twitter 数据集上进行 PageRank 得到的结果
-/// TODO 数据地址
+/// 数据地址：<https://pic.caiwen.work/dataset/pagerank_networkx_output.zip>
 /// 计算参数：alpha=0.85, max_iter=100, tol=1e-6
 fn load_twitter_networkx_output() -> HashMap<usize, f64> {
     let data = std::fs::read_to_string("dataset/twitter_networkx.json").unwrap();
