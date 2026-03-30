@@ -5,6 +5,7 @@
 ```
 ├─benches               算法的基准测试
 ├─reports               课程作业的 PPT / 报告
+|  ├─reading1           第一次前沿阅读：STOC2025-单源最短路径新算法
 │  └─discussion1        第一次小班讨论：PageRank
 ├─src
 │  ├─algorithms         算法的代码实现
@@ -24,20 +25,20 @@
 
 > 第六组：数学之美：P98 第 10 章 PageRank-Google 的民主表决式网页排名技术+实现至少一种 PageRank 算法+大规模数据集效果测试（建议阅读 第 10 章、网上搜索更多资料）
 
-* PageRank
-  * 代码：`src/algorithms/pagerank.rs`
-  * 测试：`tests/pagerank.rs`
-  * 基准测试：无
-* CSCMatrix（按列压缩的稀疏矩阵）
-  * 代码：`src/algorithms/matrix.rs`
-  * 测试：单元测试
-  * 基准测试：无
-  * 参考：<https://www.caiwen.work/post/mit6172-1#1-5-sparsity>
-  * 用于实现在稀疏图上的 PageRank 算法
-* TextRank
-  * 代码：`src/bin/text_rank.rs`
-  * 测试：无
-  * 基准测试：无
+- PageRank
+  - 代码：`src/algorithms/pagerank.rs`
+  - 测试：`tests/pagerank.rs`
+  - 基准测试：无
+- CSCMatrix（按列压缩的稀疏矩阵）
+  - 代码：`src/algorithms/matrix.rs`
+  - 测试：单元测试
+  - 基准测试：无
+  - 参考：<https://www.caiwen.work/post/mit6172-1#1-5-sparsity>
+  - 用于实现在稀疏图上的 PageRank 算法
+- TextRank
+  - 代码：`src/bin/text_rank.rs`
+  - 测试：无
+  - 基准测试：无
 
 课堂展示PPT （pdf + latex 源码）位于：`reports/discussion1`
 
@@ -47,29 +48,29 @@
 >
 > 论文：https://arxiv.org/abs/2504.17033
 
-* BMSSP（论文中的最短路算法）
-  * 代码：`src/algorithms/bmssp/*`、`src/bin/bmssp.rs`
-  * 测试：单元测试、`tests/bmssp.rs`
-  * 基准测试：`benches/bmssp.rs`
-* Dijkstra
-  * 代码：`src/algorithms/ssp.rs`
-  * 测试：文档测试、单元测试、`tests/ssp.rs`
-  * 基准测试：`benches/ssp.rs`
+- BMSSP（论文中的最短路算法）
+  - 代码：`src/algorithms/bmssp/*`、`src/bin/bmssp.rs`
+  - 测试：单元测试、`tests/bmssp.rs`
+  - 基准测试：`benches/bmssp.rs`
+- Dijkstra
+  - 代码：`src/algorithms/ssp.rs`
+  - 测试：文档测试、单元测试、`tests/ssp.rs`
+  - 基准测试：`benches/ssp.rs`
 
-* Spfa
-  * 代码：`src/algorithms/ssp.rs`
-  * 测试：文档测试、单元测试、`tests/ssp.rs`
-  * 基准测试：`benches/ssp.rs`
+- Spfa
+  - 代码：`src/algorithms/ssp.rs`
+  - 测试：文档测试、单元测试、`tests/ssp.rs`
+  - 基准测试：`benches/ssp.rs`
 
 阅读报告：<https://www.caiwen.work/post/bmssp>
 
-课堂展示PPT：TODO
+课堂展示PPT（latex 源码）位于：`reports/reading1`
 
 ## 3. 第一次实验
 
 > **（离线题** **3** **题）**
 >
-> 经典案例+课后算法实现题 
+> 经典案例+课后算法实现题
 >
 > 共 3 题（离线准备，每人 3 道题，每人完成 3 个实验并撰写实验报告，【第 5 周周六验收】
 >
@@ -83,30 +84,30 @@
 > 2. 用贪心算法求解背包问题
 > 3. 实现题 2-6 排列的字典序问题
 
-* find_min_max（分治法查找最大最小值）
-  * 代码：`src/algorithms/divide_conquer.rs`
-  * 测试：文档测试、单元测试、`tests/divide_conquer.rs`
-  * 基准测试：`benches/divide_conquer_min_max.rs`
-* sort（归并排序）
-  * 代码：`src/algorithms/divide_conquer.rs`
-  * 测试：文档测试、单元测试、`tests/divide_conquer.rs`
-  * 基准测试：`benches/divide_conquer_sort.rs`
-* 课本 1.2 字典序问题
-  * 代码：`src/bin/textbook_1_2.rs`
-  * 测试：单元测试（暴力和计数 DP 做法对拍）
-  * 基准测试：无
-* SimpleKnapsack（01 背包）
-  * 代码：`src/algorithms/dp.rs`
-  * 测试：文档测试、`tests/dp.rs`
-  * 基准测试：`benches/simple_knapsack.rs`
-* 康托展开/逆康托展开
-  * 代码：`src/algorithms/misc.rs`
-  * 测试：文档测试、`tests/misc.rs`
-  * 基准测试：无
-* 树状数组
-  * 代码：`src/ds/bit.rs`
-  * 测试：单元测试
-  * 基准测试：无
-  * 用于优化康托展开和逆康托展开
+- find_min_max（分治法查找最大最小值）
+  - 代码：`src/algorithms/divide_conquer.rs`
+  - 测试：文档测试、单元测试、`tests/divide_conquer.rs`
+  - 基准测试：`benches/divide_conquer_min_max.rs`
+- sort（归并排序）
+  - 代码：`src/algorithms/divide_conquer.rs`
+  - 测试：文档测试、单元测试、`tests/divide_conquer.rs`
+  - 基准测试：`benches/divide_conquer_sort.rs`
+- 课本 1.2 字典序问题
+  - 代码：`src/bin/textbook_1_2.rs`
+  - 测试：单元测试（暴力和计数 DP 做法对拍）
+  - 基准测试：无
+- SimpleKnapsack（01 背包）
+  - 代码：`src/algorithms/dp.rs`
+  - 测试：文档测试、`tests/dp.rs`
+  - 基准测试：`benches/simple_knapsack.rs`
+- 康托展开/逆康托展开
+  - 代码：`src/algorithms/misc.rs`
+  - 测试：文档测试、`tests/misc.rs`
+  - 基准测试：无
+- 树状数组
+  - 代码：`src/ds/bit.rs`
+  - 测试：单元测试
+  - 基准测试：无
+  - 用于优化康托展开和逆康托展开
 
 实验报告：TODO

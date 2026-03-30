@@ -1,0 +1,66 @@
+\mode<presentation>
+
+\ProcessOptionsBeamer
+\xdefinecolor{hnu}{RGB}{146, 59, 58}
+\DeclareOption{red}{\xdefinecolor{hnu}{RGB}{146, 59, 58}}
+\ProcessOptions\relax
+
+\useoutertheme[footline=authorinstitutetitle,subsection=false]{smoothbars}
+\makeatletter 
+\newcommand{\frameofframes}{/}
+\newcommand{\setframeofframes}[1]{\renewcommand{\frameofframes}{#1}}
+
+\defbeamertemplate*{footline}{hnu_beamer}{%
+	\leavevmode%
+	\hbox{%
+		\begin{beamercolorbox}[wd=.25\paperwidth,ht=2.5ex,dp=1.125ex,center]{title in head/foot}%
+			\usebeamerfont{author in head/foot}\insertshortauthor
+		\end{beamercolorbox}%
+		\begin{beamercolorbox}[wd=.25\paperwidth,ht=2.5ex,dp=1.125ex,center]{title in head/foot}%
+			\usebeamerfont{author in head/foot}\insertshortdate
+		\end{beamercolorbox}%
+		\begin{beamercolorbox}[wd=.435\paperwidth,ht=2.5ex,dp=1.125ex,center]{author in head/foot}%
+			\usebeamerfont{title in head/foot}\insertshorttitle
+		\end{beamercolorbox}%
+		\begin{beamercolorbox}[wd=0.065\paperwidth,ht=2.5ex,dp=1.125ex,right]{author in head/foot}%
+			\insertframenumber{} / \inserttotalframenumber\hspace*{1ex}
+	\end{beamercolorbox}}%
+	\vskip0pt%
+}
+\makeatother
+
+\useinnertheme{circles}
+\usefonttheme{professionalfonts}
+
+% 颜色应用
+\setbeamercolor{footline}{bg=hnu}
+\setbeamercolor{frametitle}{bg=hnu,fg=white}
+\setbeamercolor{title}{bg=hnu!90!black}
+\setbeamertemplate{bibliography item}[text]
+\setbeamertemplate{caption}[numbered]
+
+\setbeamercolor{palette primary}{use=structure,fg=white,bg=structure.fg}
+\setbeamercolor{palette secondary}{use=structure,fg=white,bg=structure.fg!75!black}
+\setbeamercolor{palette tertiary}{use=structure,fg=white,bg=structure.fg!50!black}
+\setbeamercolor{palette quaternary}{fg=white,bg=structure.fg!50!black}
+\setbeamercolor{titlelike}{parent=palette primary}
+
+%% Block 样式调整
+\setbeamercolor{block title}{bg=hnu,fg=white}
+\setbeamercolor{block body}{bg=hnu!10,fg=black}
+\setbeamercolor{block title alerted}{use = alerted text, fg = white, bg = hnu!80!black}
+\setbeamercolor{block title example}{use={normal text,example text},bg=gray!20,fg=black}
+\setbeamercolor{block body example}{use={normal text,example text},bg=gray!10,fg=black}
+
+\setbeamercolor{item projected}{fg=white, bg=hnu}
+\setbeamercolor{structure}{fg=hnu}
+
+% 目录页设置
+\AtBeginSection[]{
+	\begin{frame}
+		\tableofcontents[sectionstyle=show/shaded,subsectionstyle=hide,subsubsectionstyle=hide]
+	\end{frame}
+}
+
+\mode
+<all>

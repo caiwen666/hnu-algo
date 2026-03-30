@@ -1,0 +1,605 @@
+\documentclass{beamer}
+\usepackage[UTF8]{ctex}
+\usepackage{HNUBeamer}
+\usepackage{booktabs}
+\usepackage[UTF8,noindent]{ctexcap}
+\usepackage[bookmarks=true]{hyperref}
+\usepackage{amsmath,amssymb,booktabs,array}
+\usepackage{graphicx}
+\usepackage[table]{xcolor}
+\usepackage{adjustbox}
+
+\title{Breaking the Sorting Barrier for SSSP}
+\author[姚鑫婷、唐怡、李知夏]{姚鑫婷\textsuperscript{1} \and 唐怡\textsuperscript{1} \and 李知夏\textsuperscript{1}}
+\institute{\textsuperscript{1}湖南大学\ 计算机学院}
+\date{\today}
+
+\setbeamertemplate{navigation symbols}{}
+\setlength\leftmargini{1.75em}
+\setlength\leftmarginii{1.5em}
+\usebackgroundtemplate{\includegraphics[width=\paperwidth,height=\paperheight]{background.png}}
+
+\setlength{\parskip}{0.35em}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\section{1. 算法过程}
+
+\begin{frame}{1. 算法过程}
+  \begin{beamercolorbox}[sep=0.55em,rounded=true,shadow=true,wd=\linewidth]{block body}
+    \centering
+    $k = \left \lfloor \log^{\frac{1}{3}}n \right \rfloor$，\quad $t = \left \lfloor \log^{\frac{2}{3}}n \right \rfloor$
+  \end{beamercolorbox}
+
+  \pause\vspace{0.45em}
+  $d(x)$ 表示 $x$ 最终的最短路距离，$\hat{d}(x)$ 表示 $x$ 当前距离。
+
+  \pause\vspace{0.45em}
+  我们称一个节点 complete ，就表示这个节点的最短路已经找到了。一个 complete 的点即满足 $d(x) = \hat{d}(x)$。
+
+  \pause\vspace{0.45em}
+  \textbf{算法主体：BMSSP}
+
+  \pause
+  \begin{itemize}
+    \item Finding Pivots
+    \item 神秘数据结构：分块优先队列
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{1.1 BMSSP}
+  BMSSP 算法接收三个参数 $l$，$S$ 和 $B$。
+
+  \pause
+  \begin{itemize}
+    \item $l$ 表示当前层数。
+    \item $S$ 表示一个集合。
+    \item $B$ 表示一个上界。
+  \end{itemize}
+
+  \pause\vspace{0.35em}
+    仅考虑最短路长度小于 $B$，且没有 complete 的点。我们将这种点称为\textbf{目标节点}。这些节点组成集合 $\widetilde{U}$。
+\end{frame}
+\begin{frame}{1.1 BMSSP}
+  BMSSP 还对上述参数做了如下要求：
+
+  \pause
+  \begin{itemize}
+    \item $S$ 不能太大：$|S| \le 2^{lt}$。
+    \pause
+    \item 你需要保证 $\widetilde{U}$ 中所有的点的最短路，都经过 $S$ 中某个已经 complete 的点。
+    \pause
+      \begin{itemize}
+        \item 这也就意味着 $S$ 中必须有至少一个 complete 的点（但不意味着 $S$ 中的点都是 complete 的，$S$ 里面混杂着 complete 和没 complete 的点）
+        \pause
+        \item 同时后续算法会保证，$B$ 一定大于 $S$ 中最大的 $\hat{d}$ 。这也就意味着 $S$ 中没被 complete 的点的最短路一定是经过已经 complete 的点。
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{1.1 BMSSP}
+  当执行完一次 BMSSP 算法之后，会产生两种情况：
+
+  \pause
+
+  \begin{itemize}
+    \item 成功执行：BMSSP 会把 $\widetilde{U}$ 的点全部 complete，（由于第二个要求，这件事是肯定能办到的）
+    \pause
+    \item 部分执行：BMSSP 为了控制时间复杂度，只 complete 掉 $\widetilde{U}$ 内的一部分点。
+  \end{itemize}
+
+  \pause\vspace{0.4em}
+    算法会返回一个集合 $U$ 和一个边界 $B'$。表示说所有最短路长度小于 $B'$，且没有 complete 的点，都已经被 complete 掉，且放入集合 $U$ 中了。
+
+  \pause
+  \begin{itemize}
+    \item 成功执行情况，就会有 $U=\widetilde{U}$，$B'=B$。
+    \item 对于部分执行情况，就会有 $U\subset \widetilde{U}$，$B'<B$。
+  \end{itemize}
+
+  \pause\vspace{0.35em}
+  返回这两个值可以让调用方得知 BMSSP 完成的进度。
+\end{frame}
+\begin{frame}{1.1 BMSSP}
+  \begin{beamercolorbox}[sep=0.45em,rounded=true,wd=\linewidth]{block body}
+    求点 $x$ 的单源最短路的话，只需要令 $l=\left\lceil \frac{\log n}{t} \right\rceil$，$S=\left\{x\right\}$，$B=\infty$ ，跑 BMSSP 就可以了。
+  \end{beamercolorbox}
+\end{frame}
+
+\begin{frame}{1.1 BMSSP}
+  \begin{center}
+    \adjincludegraphics[width=0.9\linewidth,height=0.78\textheight,keepaspectratio]{images/bmssp-process.png}
+  \end{center}
+\end{frame}
+
+\begin{frame}{1.1 BMSSP}
+  目标节点最短路一定是经过 $S$ 的，朴素的想法是从 $S$ 出发往外松弛。
+
+  \pause\vspace{0.35em}
+  论文提出，我们可以先搞一个 Finding Pivots 操作，先把 $S$ 的规模缩一下，缩成 $P$，然后再从 $P$ 往外松弛。
+
+  \pause\vspace{0.35em}
+  Finding Pivots 操作在缩小规模的时候还顺便 complete 掉一些点，这些点被放在 $W$ 中（但 $W$ 里面还混杂着一部分没有 complete 的点，需要后面再筛出来）。
+\end{frame}
+\begin{frame}{1.1 BMSSP}
+  朴素的 Dijkstra 会使用堆，把 $P$ 都放入堆中，然后每次把 $\hat{d}$ 最小的点拿出来往外松弛。（$\hat{d}$ 最小的点一定是已经 complete 的，或者说有 $\hat{d} = d$）
+
+  \pause\vspace{0.35em}
+  堆的这个排序是 Dijkstra 时间复杂度的瓶颈，所以论文为了避开这点，选择使用一个分块的优先队列来维护 $\hat{d}$
+
+  \pause
+  \begin{itemize}
+    \item 分块的大小为 $M$
+    \item 可以往这个分块优先队列里插入，或是批量插入（批量插入的时间复杂度会小一点，但同时需要满足批量插入的数据比分块优先队列中最小的数据还要小）
+    \item 取出前 $M$ 个最小的数据。
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{1.1 BMSSP}
+  首先把 $P$ 都放入这个分块优先队列中，然后每次循环，把分块优先队列中前 $M$ 小的点拉出来，记为 $S_i$（$S_i$ 内可能是无序的）
+
+  \pause
+
+  拉出来的时候数据结构还会返回一个上界 $B_i$，$B_i$ 为分块优先队列中剩余的最小的 $\hat{d}$（也意味着 $B_i$ 比 $S_i$ 中最大的 $\hat{d}$ 还大）。
+
+  \pause\vspace{0.35em}
+  $S_i$ 内的点不是全部 complete 的，所以不能直接往外松弛。
+
+  BMSSP 就会先拿着 $S_i$ 和 $B_i$ ，去调用 $l-1$ 层的 BMSSP。
+
+  \pause
+  \begin{itemize}
+    \item $|S_i|\le M = 2^{(l-1)t}$
+    \pause
+    \item 所有最短路长度小于 $B_i$ 的点的最短路事实上就是经过 $S_i$ 的（Pull Minimum 引理）
+  \end{itemize}
+\end{frame}
+\begin{frame}{1.1 BMSSP}
+  子 BMSSP 返回 $U_i$ 和 $B_i'$。$U_i$ 是子 BMSSP complete 掉的点的集合，我们把他直接并入当前 BMSSP 的 $U$ 中。
+
+  \pause
+
+  现在 $U_i$ 已经是 complete 的了，于是从 $U_i$ 往外松弛。对于边 $(u,v)$，如果松弛成功的话，根据朴素的 Dijkstra，我们需要把 $v$ 放入堆中。
+\end{frame}
+
+\begin{frame}{1.1 BMSSP}
+  \begin{center}
+    \adjincludegraphics[width=0.8\linewidth,height=0.40\textheight,keepaspectratio]{images/relax-insert.png}
+  \end{center}
+
+  \pause
+
+  \begin{itemize}
+    \item $\hat{d}(v)\ge B$，这个我们就不管了，因为当前 BMSSP 只负责最短路小于 $B$ 的部分。
+    \pause
+    \item $B_i\le \hat{d}(v) < B$ ，我们把 $v$ 直接插入分块优先队列中。
+    \pause
+    \item $B_i'\le \hat{d}(v) <B_i$，我们也把 $v$ 插入分块优先队列中。可以使用批量插入来加速。
+    \pause
+    \item $\hat{d}(v) < B_i'$ ，不可能。
+  \end{itemize}
+
+  \pause
+
+  由于子 BMSSP 部分执行的原因，可能 $S_i$ 有部分点他本身的 $\hat{d}$ 就大于了 $B_i'$，没派上用场，所以需要把这部分点也重新放回分块优先队列中。
+\end{frame}
+
+\begin{frame}{1.1 BMSSP}
+  每次循环开始还会检查当前已经 complete 的点数量，即集合 $U$ 的大小，是否超过了 $k2^{lt}$，超过的话就说明当前 BMSSP 的工作量有点大了，需要立刻终止。
+
+  \pause\vspace{0.35em}
+    为了保证最顶层的 BMSSP 一定是成功执行的，我们必须让顶层的 $l$ 满足 $k2^{lt}>n$。$l=\left\lceil \frac{\log n}{t} \right\rceil$ 是满足的，所以我们最顶层的 BMSSP 取了这个值。
+\end{frame}
+\begin{frame}{1.1 BMSSP}
+  在 BMSSP 的最后，会把最后一次子 BMSSP 的返回值 $B_i'$ 作为返回值 $B'$。
+
+  \pause\vspace{0.35em}
+  $W$ 集合中，满足 $\hat{d}$ 小于 $B'$ 的点就是先前 $W$ 中已经 complete 的点。把这些点都筛出来放入集合 $U$，就组成了当前 BMSSP 所有 complete 掉的点。
+\end{frame}
+
+\begin{frame}{1.2 BaseCase}
+  上面 BMSSP 的分块优先队列 $D$ 保证了每次取出的 $S_i$ 的大小不超过 $M$。当 $l=1$ 时，$M=1$，所以再往 $l=0$ 这一层传的 $S_i$ 只有一个元素了。
+
+  \pause\vspace{0.35em}
+  同时根据 BMSSP 的第二个要求，可以得知此时跑一个 Dijkstra 是没问题的
+\end{frame}
+
+\begin{frame}{1.2 BaseCase}
+  \vspace*{-0.6\baselineskip}
+  \centering
+  \adjincludegraphics[
+    width=\linewidth,
+    height=\dimexpr\paperheight-24mm\relax,
+    keepaspectratio
+  ]{images/basecase.png}
+\end{frame}
+
+\begin{frame}{1.3 分块优先队列}
+  维护了若干个 key-value，有两个给定的参数 $M$ 和 $B$，数据结构中最多会维护 $N$ 个 key-value。
+
+  \pause
+  \begin{itemize}
+    \item \textbf{Insert}：插入一对 key-value。所有的 value 值不超过一个边界值 $B$。
+    \item \textbf{Batch Prepend}：如果有若干个 key 的 value 值比数据结构中已有的最小 value 还要小，那么这堆 key 可以批量插入。
+    \item \textbf{Pull}：从这个数据结构中取出 value 最小的 $M$ 个 key 并从数据结构中删除。
+  \end{itemize}
+\end{frame}
+\begin{frame}{1.3 分块优先队列}
+  分块优先队列维护两个链表 $D_0$ 和 $D_1$。
+  
+  \pause
+  
+  $D_0$ 用来放 Batch Prepend 操作添加的 key
+  
+  \pause
+
+  $D_1$ 用来放 Insert 操作添加的 key。$D_0$ 和 $D_1$ 是把块作为元素连接起来的链表。同一块内再维护一个链表，把块内的数据连接起来。
+
+  \pause\vspace{0.35em}
+  每个块都有一个属性：上界，块中所有的元素的 value 都不会超过这个上界。这样使得块间元素有序，块内元素无序。
+\end{frame}
+
+\begin{frame}{1.3 分块优先队列}
+  \begin{block}{初始化}
+    $D_0$ 直接为空链表，$D_1$ 里面放入一个空的块，块的上界为 $B$。
+  \end{block}
+\end{frame}
+\begin{frame}{1.3 分块优先队列}
+  \begin{block}{Insert}
+    \footnotesize
+    \begin{itemize}
+      \item 首先看这个 key 之前是否已经被插入过了，如果是的话先直接删除
+
+      \pause
+      对每个 key 维护其在链表中的指针（这里假设 key 不太大，可以按 \texttt{node\_map[key] = ptr} 这样开桶维护，并且维护的开销也是 $O(1)$ 的）。
+
+      所以这里无论是查找还是链表内删除，都是 $O(1)$ 的。
+
+      \pause
+      \item 然后找到上界最小且大于要插入的 value 的块进行插入。同一个块内的 key 的 value 是无序的，所以直接插，$O(1)$。
+
+      \pause
+      而找到要往哪个块插，需要我们先使用平衡树对每一个块的上界进行维护。
+
+      \pause
+      块的数量是 $O(\max\left \{ 1, \frac{N}{M} \right \})$ 的，查找要插的块的时间复杂度是 $O(\max\left\{ 1, \log \frac{N}{M} \right\})$。
+
+      \pause
+      \item 当把一个元素从块内删除之后，不需要更新块的上界。
+
+      \pause
+      如果块内元素全被删干净时，这个块没了，此时不得将块的上界从平衡树中删掉，那也还是只需要 $O(\max\left\{ 1, \log \frac{N}{M} \right\})$ 的时间复杂度，不影响整个插入操作的时间复杂度。
+    \end{itemize}
+  \end{block}
+\end{frame}
+
+\begin{frame}{1.3 分块优先队列}
+  \begin{block}{分裂}
+    将元素插入到一个块之后，有可能这个块的元素数量大于了 $M$，于是需要对该块进行分割。
+
+    \vspace{0.35em}\pause
+    分割的时候按 value 的中位数，分成两个 $\frac{M}{2}$ 的块。
+
+    \vspace{0.35em}\pause
+    这么做是为了确保每个块内的元素的数量位于 $\frac{M}{2}$ 和 $M$ 之间，即块内元素的数量是 $\Theta(M)$ 的，这样就能确保块的数量是 $O(\max\left \{ 1, \frac{N}{M} \right \})$ 的。
+
+    \vspace{0.35em}\pause
+    寻找中位数使用线性寻找中位数算法：BFPRT，所以这个分割操作的时间复杂度是 $O(M)$ 的。
+  \end{block}
+\end{frame}
+
+\begin{frame}{1.3 分块优先队列}
+  \begin{block}{Batch Prepend}
+    对于 Batch Prepend 操作，设批量插入 $L$ 个元素。
+
+    \vspace{0.35em}\pause
+    如果 $L\le M$，那么直接在 $D_{0}$ 的最前面开一个块，把这 $L$ 个元素丢进去，时间复杂度大概是 $O(L)$ 的。
+  
+    \vspace{0.35em}\pause
+    反之，我们在 $D_0$ 最前面创建 $O(\frac{L}{M})$ 个块，然后对于这 $L$ 个元素不断地跑 BFPRT 算法按中位数切割。
+    
+    \vspace{0.35em}
+    这个不断切割的过程就像是一个递归树，层数为 $O(\log \frac{L}{M})$，同一层递归节点都要跑线性的 BFPRT 算法，所以总时间复杂度为 $O(L\log \frac{L}{M})$。
+  \end{block}
+\end{frame}
+
+\begin{frame}{1.3 分块优先队列}
+  \begin{block}{Pull}
+    \footnotesize
+    对于 Pull 操作，我们先从 $D_0$ 中从前往后收集块，直到收集到的元素数量大于 $M$ 或者没有更多块了。然后再从 $D_1$ 中进行类似的操作。
+
+    \vspace{0.35em}\pause
+    把从两个链表中收集到的元素全部拿到一个集合 $S$ 中。如果 $|S| \le M$，那么非常好处理，这里不多说。
+  
+    \vspace{0.35em}\pause
+    反之，由于每一个块内元素大小不超过 $M$，所以最后 $S$ 内的元素数量不会超过 $M$ 太多，最多也就是 $4M$，即 $|S|=\Theta(M)$。
+  
+    \vspace{0.35em}\pause
+    然后我们可以直接在 $S$ 上面跑 BFPRT 算法，在 $\Theta(|S|)=\Theta(M)$ 的时间来把前 $M$ 小的元素找到，然后把这 $M$ 个元素逐个从删掉。逐个 $O(1)$ 删除也只会有 $O(M)$ 的时间。
+  
+    \vspace{0.35em}\pause
+    可能存在的问题是，删除时如果某个块变成空块了，就需要再付 $O(\max\left\{ 1, \log \frac{N}{M} \right\})$ 的块删除时间。你可以根据类似势能分析的思想，把这里删除块的时间复杂度算在插入块上。
+  \end{block}
+\end{frame}
+
+\begin{frame}{1.3 分块优先队列}
+  总之，我们有：
+  \begin{center}\small
+    \begin{tabular}{@{}l@{\qquad}l@{}}
+      \toprule
+      操作 & 时间复杂度 \\
+      \midrule
+      Insert & $O(\max\left\{ 1, \log \frac{N}{M} \right\})$ \\
+      Batch Prepend & $O(L\log \frac{L}{M})$ \\
+      Pull & $O(M)$ \\
+      \bottomrule
+    \end{tabular}
+  \end{center}
+\end{frame}
+
+% 上方一段话 + 标题条/页脚占位后，剩余区域作为图片高、宽的上限，等比尽量放大
+\begin{frame}[t]{1.4 Finding Pivots}
+  Finding Pivots 会把 $S$ 集合缩成 $P$，后续只需要在 $P$ 上做就是对的。
+
+  \pause
+  \vspace{0.25em}
+  \centering
+  \adjincludegraphics[
+    width=\linewidth,
+    height=\dimexpr\paperheight-16mm-4.5\baselineskip\relax,
+    keepaspectratio
+  ]{images/finding-pivots.png}
+\end{frame}
+
+\begin{frame}{1.4 Finding Pivots}
+  Finding Pivots 操作会进行类似于 Bellman ford 的 $k$ 轮松弛。
+
+  \pause\vspace{0.35em}
+  和 Bellman ford 不同的是，Bellman ford 每轮松弛会松弛整个图的边，而这里的松弛只涉及到起点位于 $W_{i-1}$ 内的边，$W_{i-1}$ 表示上一轮松弛中成功松弛到的点。
+
+  \pause\vspace{0.35em}
+    直观上理解，每轮松弛都相当于一圈一圈往外延展。这里的 $k$ 轮松弛还有种做 $k$ 层 BFS 的味道。
+\end{frame}
+
+\begin{frame}{1.4 Finding Pivots}
+  最终会得到两个东西：
+
+  \vspace{0.35em}
+  一个东西是 $W$ 集合，也就是这 $k$ 轮松弛下来能够到达的所有点，或者说是从 $S$ 内的点出发 $k$ 步以内能到达的所有点。
+
+  \pause\vspace{0.35em}
+  一个是 $P$ 集合，表示后续的 BMSSP 算法只需要对 $P$ 内连出去的边进行松弛即可，相当于把 $S$ 缩小成了 $P$。
+\end{frame}
+
+\begin{frame}{1.4 Finding Pivots}
+  $\widetilde{U} $ 必然可以被分成两类：
+
+  \pause
+  \begin{itemize}
+    \item 从 $S$ 出发，走 $k$ 步就能 complete，这种点已经被我们加入到了 $W$ 中。
+    
+    \pause
+
+    \item 从 $S$ 出发，走 $k$ 步不能 complete，这种点可能需要再多走几步才能 complete。
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{1.4 Finding Pivots}
+  对于第二种，至少我们可以知道，这样的点，从 $S$ 出发的最短路径上，前 $k$ 个点必然是已经在 $W$ 中且已经 complete 的了。
+
+  \vspace{0.35em}\pause
+  Finding Pivots 在最后，根据第 15 行的关系式，构建了一个”最短路树“。
+
+  注意，已经 complete 的点肯定在这个最短路树上，但是这个最短路树上还有没有 complete 的点，但这些点并不影响算法的正确性和复杂度。
+
+  \vspace{0.35em}\pause
+  对于每个最短路树，如果其内部节点数量大于 $k$ 的话，就将其加入 $P$ 集合作为 pivot。原来在 $S$ 中但没在 $P$ 中的点，其树的大小小于 $k$，也就是从这个点出发，走不了 $k$ 步就没节点可以继续走了。走 $k$ 步不能 complete 的点必然不会经过这些点。
+
+  \vspace{0.35em}\pause
+  走 $k$ 步不能 complete 的点，必然有：其最短路经过 pivot。
+\end{frame}
+
+\begin{frame}{1.4 Finding Pivots}
+  然后回忆起 BMSSP 在最后说，如果 $W$ 内的点 $x$ 满足 $\hat{d}(x) < B'$，那么他就是 complete 的。
+  
+  \pause
+
+  \begin{block}{证明}
+  我们有如下证明：假如说 $x$ 不是 complete 的，根据上面所说，$x$ 的最短路必然经过某个 pivot。而 BMSSP 在若干次循环之后，一定做到了把最短路小于 $B'$ 且经过 $P$ 的点 complete ，于是这里发生矛盾。
+  \end{block}
+\end{frame}
+
+\begin{frame}{1.4 Finding Pivots}
+  Finding Pivots 操作需要保证给到后续 BMSSP 算法的集合 $P$ 一定满足 $P\le \frac{|\widetilde{U}|}{k}$ 以保证后面 BMSSP 的时间复杂度。
+
+  \pause
+
+  Finding Pivots 操作在最后有 $|W| \le |\widetilde{U} |$，同时由于我们 pivots 选择的规则，有 $k|P|\le |W|$，两个合起来，就有 $|P|\le \frac{|\widetilde{U} |}{k}$。
+
+  \pause\vspace{0.35em}
+  同时注意到，如果在某轮松弛之后，出现了 $|W|>k|S|$，而 $|W|\le  |\widetilde{U} |$，于是我们有 $k|S| < |\widetilde{U}|$，$|S|<\frac{|\widetilde{U} |}{k}$，那么此时就说明 $S$ 其实本身规模就挺小的，直接把 $S$ 作为 $P$ 也可以接受，于是就直接把 $S$ 返回了。
+\end{frame}
+
+\begin{frame}{1.4 Finding Pivots}
+  所以，$|W|=O(\min\left\{ k|S|, |\widetilde{U}| \right\})$，每轮松弛花费 $|W|$ 的时间。
+
+  如果没有提前返回，最后也是花 $|W|$ 的时间生成集合 $P$。
+
+  总的时间复杂度主要在多轮松弛上，为 $O(k|W|)=O(\min\left\{ k^2|S|, k|\widetilde{U}| \right\})$。
+\end{frame}
+
+\section{2. 正确性}
+
+\begin{frame}{2. 正确性}
+  略。\url{https://www.caiwen.work/post/bmssp}
+
+  \pause
+
+  Big Picture：
+\end{frame}
+
+\begin{frame}{2. 正确性}
+  \begin{block}{Pull Minimum 引理}
+    \begin{itemize}
+      \item 如果我们把 $D$ 以 $B_i$ 分成两部分，那么所有最短路距离小于 $B_i$ 且还没 complete 的点就归 $S_i$ 管了，$D$ 剩下的部分就不管了。
+  
+        \pause
+        也就解释了为什么 BMSSP 中 $S_i$ 和 $B_i$ 是满足子 BMSSP 第二个条件的。
+
+      \pause
+      \item 即使后续下层 BMSSP 是部分执行的，仅处理完了 $S_i$ 中最短路距离小于 $B_i'$ 的部分，但实际上是处理完了整个 $D$ 中最短路距离小于 $B_i'$ 的部分。
+    \end{itemize}
+  \end{block}
+\end{frame}
+\begin{frame}{2. 正确性}
+  \textbf{BMSSP 正确性}
+
+  双重数学归纳法
+
+  \pause
+
+  第一重：$l=0$ 时肯定成立。假设 $l-1$ 成立，证明 $l$ 成立。
+
+  \pause
+
+  在 $l$ 层，证明在第 $i$ 次循环开始前，如下两个东西成立：
+
+  \begin{itemize}
+    \item 所有最短路距离小于 $B$ 且还没 complete 的点，都位于 $T_{\left [ B_{i-1}',B \right)}(P)$ 中。
+    \pause
+    \item 这些还没 complete 的点的最短路是经过 $D$ 中的点的。
+  \end{itemize}
+
+  \pause\vspace{0.35em}
+  第二重：$i=0$ 时成立。假设 $i$ 成立，证明 $i+1$ 成立。
+\end{frame}
+
+\begin{frame}{2. 正确性}
+  假如说 $l$ 层 BMSSP 进行了 $q$ 次循环，那么这 $q$ 次循环实际会收集 $q$ 个 complete 的点的集合：$U_1, U_2, \dots, U_q$，其中 $U_i = T_{\left [ B_{i-1}',B_i' \right)}(P)$。
+
+  \pause\vspace{0.4em}
+  BMSSP 其实是把 $P$ 出去的距离小于 $B'$ 的最短路，不重不漏地分成了 $q$ 个部分，并且全部 complete 掉了。
+\end{frame}
+
+\section{3. 时间复杂度}
+
+\begin{frame}{3. 时间复杂度}
+  略。\url{https://www.caiwen.work/post/bmssp}
+\end{frame}
+
+\begin{frame}{3. 时间复杂度}
+  在递归树的同一深度上，所有节点 $x$ 返回的集合 $U_x$ 是互不相交的，同一层的 $|U_x|$ 加起来应该是小于等于 $n$ 的。
+
+  \pause\vspace{0.35em}
+  顶层 BMSSP 取 $l=\left\lceil \frac{\log n}{t} \right\rceil$ ，所以整个递归树的层数是 $\frac{\log n}{t}=O(\log ^{\frac{1}{3}} n)$ 的。
+\end{frame}
+\begin{frame}{3. 时间复杂度}
+  \begin{block}{（1）全图所有 FindPivots 开销}
+    递归树某个节点 $x$ 的时间复杂度为 $O(\min\left\{ k^2|S_x|, k|\widetilde{U}_x| \right\}) = O(k|U_x|)$
+
+    \pause
+    \begin{quote}
+      $\min\left\{ k|S|, |\widetilde{U}| \right\} \le |U|$ ，证明略。
+    \end{quote}
+
+    \pause\vspace{0.35em}
+    同一层的所有节点开销加起来，为 $O(kn)$
+
+    \pause\vspace{0.35em}
+    递归树一共 $O(\log ^{\frac{1}{3}} n)$ 层，于是该部分总耗时为 $O(n\log^{\frac{2}{3}}n)$。
+  \end{block}
+\end{frame}
+
+\begin{frame}{3. 时间复杂度}
+  \begin{block}{（2）Pivots 插入数据结构 $D$ 中开销}
+    由于 $|P| \le \frac{|U|}{k}$。因此把 $P$ 插入到数据结构 $D$ 的开销是 $O(\frac{|U_x|}{k} \cdot t)$。
+
+    \pause
+    \begin{quote}
+      $|P| \le \frac{|U|}{k}$，证明略。
+
+      Insert 操作单次 $O(t)$，证明略。
+    \end{quote}
+
+    \pause\vspace{0.35em}
+    同一层全部节点加起来的总开销为 $O(\frac{nt}{k})$。
+
+    \pause\vspace{0.35em}
+    整个递归树在该部分的开销为 $O(\frac{nt}{k}) \times O(\log ^{\frac{1}{3}} n) = O(n\log^{\frac{2}{3}}n)$。
+  \end{block}
+\end{frame}
+
+\begin{frame}{3. 时间复杂度}
+  \begin{block}{（3）边松弛导致直接插入开销}
+    事实上，每条边，在整个算法的过程中，只会触发一次直接 Insert 操作。证明略。
+
+    \pause\vspace{0.35em}
+    边的数量是 $\Theta(n)$ 的，所以总的时间复杂度为 $O(nt) = O(n\log^{\frac{2}{3}}n)$。
+  \end{block}
+
+  \pause
+
+  \begin{block}{（4）BatchPrepend 开销}
+    被 BatchPrepend 的点的数量是最多 $O(n)$ 的。证明略。
+
+    \pause
+    \begin{quote}
+      BatchPrepend 操作均摊每个元素的时间复杂度为 $O(\log k)$，证明略。
+    \end{quote}
+
+    \pause\vspace{0.35em}
+    一共是 $O(\log ^{\frac{1}{3}} n)$ 层，因此总耗费时间为 $O(n\cdot \log(\log^{\frac{1}{3}} n) \log ^{\frac{1}{3}} n)$，比 $O(n\log ^{\frac{2}{3}}n)$ 小，可以忽略不计。
+  \end{block}
+\end{frame}
+
+\section{4. 复现}
+
+\begin{frame}{4. 复现}
+  代码仓库：\url{https://github.com/caiwen666/hnu-algo}
+
+  \pause\vspace{0.4em}
+  大力卡常：\url{https://www.caiwen.work/post/bmssp}
+\end{frame}
+
+\begin{frame}{4. 复现}
+  在腾讯云 C6.LARGE8 实例上跑了下 benchmark，对比了一下 Dijkstra，Spfa 和 BMSSP：
+
+  \vspace{0.45em}\pause
+
+  \begin{center}
+    \small
+    \rowcolors{2}{hnu!7}{hnu!3}
+    \begin{tabular}{@{}lcccc@{}}
+      \toprule
+       & Case1 & Case2 & Case3 & Case4 \\
+      \midrule
+      Dijkstra & 268.89 ns & 161.11 µs & 106.43 ms & 8.4268 ms \\
+      Spfa & 176.81 ns & 141.64 µs & 43.333 ms & 5.0149 ms \\
+      BMSSP & 19.683 µs & 19.349 ms & 1.3813 s & 265.75 ms \\
+      \bottomrule
+    \end{tabular}
+  \end{center}
+
+  \pause\vspace{0.45em}
+  可以看到，BMSSP 即使理论上比 Dijkstra 的时间复杂度低，但是由于算法过程比较复杂，常数太大，实测还是比 Dijkstra 慢十好几倍。
+\end{frame}
+
+\begin{frame}{4. 复现}
+  不考虑任何常数的影响，BMSSP 也就比 Dijkstra 快 $\log^{\frac{1}{3}} n$ 倍，当 $n=10^6$ 时，理论上也就快 $2.7$ 倍，但是 BMSSP 的代码实现的常数肯定比 Dijkstra 高了不止 $3$ 倍，得到这样的结果是不意外的。
+  
+  \pause\vspace{0.4em}
+
+  \begin{center}
+    \includegraphics[width=0.2\textwidth]{images/summary_meme.jpg}
+  \end{center}
+\end{frame}
+
+\begin{frame}
+  \Huge{\centerline{THANK YOU!}}
+\end{frame}
+
+\end{document}
