@@ -1,6 +1,8 @@
 pub mod bmssp;
+pub mod dfs;
 pub mod divide_conquer;
 pub mod dp;
+pub mod greedy;
 pub mod matrix;
 pub mod misc;
 pub mod pagerank;

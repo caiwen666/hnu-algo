@@ -73,8 +73,7 @@ where
 /// # use hnu_algo::algorithms::divide_conquer::sort;
 /// let arr = [1, 1, 4, 5, 1, 4];
 /// let sorted_arr = sort(&arr);
-/// let expected_arr = [1, 1, 1, 4, 4, 5];
-/// assert_eq!(sorted_arr, expected_arr);
+/// assert_eq!(sorted_arr.as_slice(), &[&1, &1, &1, &4, &4, &5]);
 /// ```
 pub fn sort<T>(arr: &[T]) -> Vec<&T>
 where

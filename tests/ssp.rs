@@ -10,7 +10,9 @@ fn test_dijkstra() {
         println!("testing dijkstra, ssp case {}", index);
 
         let (source, graph, expected) = ssp::load_normal(index);
+        let timer = std::time::Instant::now();
         let mut actual = dijkstra(&graph, source);
+        println!("dijkstra on ssp case {} took {:?}", index, timer.elapsed());
         actual[0] = 0;
 
         assert_eq!(
